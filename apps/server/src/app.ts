@@ -1,4 +1,7 @@
 import Fastify from "fastify";
+import multipart from "@fastify/multipart";
+import { registerImportRoutes } from "./import/routes.js";
+import { openDatabase } from "./state/db.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -14,8 +17,14 @@ const allowedOrigins = new Set([
   "http://localhost:3081",
 ]);
 
-export function createApp(_options: AppOptions) {
+export function createApp(options: AppOptions) {
   const app = Fastify();
+  const db = openDatabase(options.dataDir);
+  app.addHook("onClose", async () => db.close());
+
+  app.register(multipart, {
+    limits: { files: 1, parts: 1, fileSize: 20 * 1024 * 1024 },
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (!request.url.startsWith("/api/v1/") || ["GET", "HEAD"].includes(request.method)) return;
@@ -26,5 +35,6 @@ export function createApp(_options: AppOptions) {
   });
 
   app.get("/api/v1/health", async () => ({ status: "ok" }));
+  registerImportRoutes(app, db);
   return app;
 }

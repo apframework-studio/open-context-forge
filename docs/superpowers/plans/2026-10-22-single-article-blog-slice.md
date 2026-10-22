@@ -193,7 +193,7 @@ export class ImportError extends Error {
 ~~~
 
 - [x] **Step 4: 运行上述六个测试及 npm run typecheck，确认退出 0。**
-- [ ] **Step 5: 提交，提交信息 feat: validate clipper zip imports。**
+- [x] **Step 5: 提交，提交信息 feat: validate clipper zip imports。**
 
 ### Task 3: 上传预检和任务状态
 
@@ -205,9 +205,9 @@ export class ImportError extends Error {
 - Produces: POST /api/v1/imports/preflight，multipart 字段 file，返回 { batchId, candidates }；GET /api/v1/imports/:batchId 返回预检和各条状态。
 - SQLite 表 import_batches(id, created_at) 与 import_items(batch_id, capture_id, payload_json, status, error_code)，主键为 (batch_id, capture_id)。
 
-- [ ] **Step 1: 写 Fastify inject 测试：上传 Task 2 的 ZIP 后能取得 batchId，重读仍能看到 ready/incomplete；超过 20 MiB 返回 413。**
-- [ ] **Step 2: 运行 routes.test.ts，确认 404 或测试导入失败。**
-- [ ] **Step 3: 用 better-sqlite3 建表，并用 @fastify/multipart 注册 files:1、parts:1、fileSize:20 MiB。路由调用 req.file()、part.toBuffer()、parseClipperZip()，在单个 SQLite transaction 写入批次与条目。数据库路径由 createApp({ dataDir }) 注入；测试使用临时目录。**
+- [x] **Step 1: 写 Fastify inject 测试：上传 Task 2 的 ZIP 后能取得 batchId，重读仍能看到 ready/incomplete；超过 20 MiB 返回 413。**
+- [x] **Step 2: 运行 routes.test.ts，确认 404 或测试导入失败。**
+- [x] **Step 3: 用 better-sqlite3 建表，并用 @fastify/multipart 注册 files:1、parts:1、fileSize:20 MiB。路由调用 req.file()、part.toBuffer()、parseClipperZip()，在单个 SQLite transaction 写入批次与条目。数据库路径由 createApp({ dataDir }) 注入；测试使用临时目录。**
 
 ~~~ts
 db.exec("CREATE TABLE IF NOT EXISTS import_batches (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)");
@@ -219,7 +219,7 @@ const insertBatch = db.transaction((batchId: string, items: CaptureCandidate[]) 
 });
 ~~~
 
-- [ ] **Step 4: 运行路由测试、typecheck，并重启进程验证 batchId 可重读。**
+- [x] **Step 4: 运行路由测试、typecheck，并重启进程验证 batchId 可重读。**
 - [ ] **Step 5: 提交，提交信息 feat: persist import preflight batches。**
 
 ### Task 4: Vault 登记与不可变来源导入
