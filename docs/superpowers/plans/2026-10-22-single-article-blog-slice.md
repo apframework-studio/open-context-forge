@@ -277,7 +277,7 @@ export interface ArticleState {
 首条链路保留一条来源引用，用户手工写正文；后续多 vault 计划将 sourceRef 扩展为证据清单，不更改 article.md 的可读性。
 
 - [x] **Step 4: 运行 articles.test.ts、writer 仓库 npm test、typecheck；检查 versions 目录内容与 article.md 一致。**
-- [ ] **Step 5: 提交，提交信息 feat: persist reviewable article projects。**
+- [x] **Step 5: 提交，提交信息 feat: persist reviewable article projects。**
 
 ### Task 6: 本地发布包与渠道预览
 
@@ -289,9 +289,9 @@ export interface ArticleState {
 - Produces: POST /api/v1/articles/:id/publications/prepare { slug }；GET /api/v1/articles/:id/publications/:publicationId。
 - 返回 prepared 状态、文章修订号、源稿 SHA-256、生成的 MDX 和图片相对路径；不写博客仓库。
 
-- [ ] **Step 1: 写测试：draft 不能准备；final 通过现有 publisher 脚本生成 publication.json；修改正文后旧发布包失效；相同版本/slug 重试不复制第二份。**
-- [ ] **Step 2: 运行 publisher.test.ts，确认失败。**
-- [ ] **Step 3: 调用 publish.mjs --project <project> --channel apframework --output <dataDir>/publications/<id> --slug <slug> --json。读取 publication.json，确保 article 和 assets 均为相对路径且在输出目录内；保存 prepared 状态和对应 revision。**
+- [x] **Step 1: 写测试：draft 不能准备；final 通过现有 publisher 脚本生成 publication.json；修改正文后旧发布包失效；相同版本/slug 重试不复制第二份。**
+- [x] **Step 2: 运行 publisher.test.ts，确认失败。**
+- [x] **Step 3: 调用 publish.mjs --project <project> --channel apframework --output <dataDir>/publications/<id> --slug <slug> --json。读取 publication.json，确保 article 和 assets 均为相对路径且在输出目录内；保存 prepared 状态和对应 revision。**
 
 ~~~ts
 const args = [publisherScript, "--project", projectPath, "--channel", "apframework",
@@ -301,7 +301,7 @@ const report = JSON.parse((await runTool(process.execPath, args, {
 })).stdout);
 ~~~
 
-- [ ] **Step 4: 运行 publisher.test.ts、publisher 仓库 npm test、typecheck；用一篇含图片的临时文章核对 MDX 与素材路径。**
+- [x] **Step 4: 运行 publisher.test.ts、publisher 仓库 npm test、typecheck；用一篇含图片的临时文章核对 MDX 与素材路径。**
 - [ ] **Step 5: 提交，提交信息 feat: prepare apframework preview packages。**
 
 ### Task 7: 确认发布、隔离写入与公开链接验证

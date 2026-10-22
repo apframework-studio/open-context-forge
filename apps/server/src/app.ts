@@ -6,6 +6,8 @@ import { VaultRegistry } from "./vaults/registry.js";
 import { registerVaultRoutes } from "./vaults/routes.js";
 import { ArticleStore } from "./articles/store.js";
 import { registerArticleRoutes } from "./articles/routes.js";
+import { PublicationStore } from "./publishing/publisher.js";
+import { registerPublicationRoutes } from "./publishing/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -27,6 +29,7 @@ export function createApp(options: AppOptions) {
   const db = openDatabase(options.dataDir);
   const vaults = new VaultRegistry(db, options.dataDir, options.maintainerRoot);
   const articles = new ArticleStore(db, options.dataDir, vaults, options.writerRoot);
+  const publications = new PublicationStore(db, options.dataDir, articles, options.publisherRoot);
   app.addHook("onClose", async () => db.close());
   app.addHook("onReady", async () => vaults.ensureDefault());
 
@@ -46,5 +49,6 @@ export function createApp(options: AppOptions) {
   registerImportRoutes(app, db);
   registerVaultRoutes(app, db, vaults);
   registerArticleRoutes(app, articles);
+  registerPublicationRoutes(app, publications);
   return app;
 }
