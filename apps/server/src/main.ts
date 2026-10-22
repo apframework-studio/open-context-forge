@@ -11,6 +11,7 @@ const app = createApp({
   maintainerRoot: process.env.OCF_MAINTAINER_ROOT,
   publisherRoot: process.env.OCF_PUBLISHER_ROOT,
   blogRoot: process.env.OCF_BLOG_ROOT,
+  writerRoot: process.env.OCF_WRITER_ROOT,
 });
 
 await app.listen({ host: "127.0.0.1", port: 3081 });

@@ -248,7 +248,7 @@ const report = JSON.parse(result.stdout);
 导入状态在 CLI 成功后才从 ready 改为 imported；失败保存 error_code，并保持可重试。测试通过真实临时 vault + 现有 maintainer 脚本运行一例，其余测试可注入假 runner。
 
 - [x] **Step 4: 运行 vaults.test.ts、maintainer 仓库 npm test、typecheck；确认快照哈希由 maintainer 校验。**
-- [ ] **Step 5: 提交，提交信息 feat: import captures into selected vault。**
+- [x] **Step 5: 提交，提交信息 feat: import captures into selected vault。**
 
 ### Task 5: 文章项目与人工编辑
 
@@ -260,9 +260,9 @@ const report = JSON.parse(result.stdout);
 - Produces: POST /api/v1/articles { title, summary, date, sourceRef }；GET /api/v1/articles/:id；PUT /api/v1/articles/:id/draft { markdown, expectedRevision }；POST /api/v1/articles/:id/finalize { expectedRevision }。
 - 项目路径为 dataDir/writing-projects/<id>/；article.md 与 versions/<revision>.md 是权威文件，SQLite 只保存项目索引和当前状态。
 
-- [ ] **Step 1: 写测试：创建文章后 article.md 有公开元数据；保存草稿使 revision 增加；旧 expectedRevision 返回 409；定稿后再次编辑创建新 revision 并清除定稿状态。**
-- [ ] **Step 2: 运行 articles.test.ts，确认失败。**
-- [ ] **Step 3: 实现文件写入先写临时文件再 rename；版本文件只用 wx 创建。文章状态为 draft、final。草稿 frontmatter 含 status: draft；finalize 前运行现有 check-article.js --file <article.md> --json，并要求该命令退出 0，然后将 status 改为 reviewed、draft 改为 false，写入新的定稿修订。后续编辑重新设为 draft。**
+- [x] **Step 1: 写测试：创建文章后 article.md 有公开元数据；保存草稿使 revision 增加；旧 expectedRevision 返回 409；定稿后再次编辑创建新 revision 并清除定稿状态。**
+- [x] **Step 2: 运行 articles.test.ts，确认失败。**
+- [x] **Step 3: 实现文件写入先写临时文件再 rename；版本文件只用 wx 创建。文章状态为 draft、final。草稿 frontmatter 含 status: draft；finalize 前运行现有 check-article.js --file <article.md> --json，并要求该命令退出 0，然后将 status 改为 reviewed、draft 改为 false，写入新的定稿修订。后续编辑重新设为 draft。**
 
 ~~~ts
 export interface ArticleState {
@@ -276,7 +276,7 @@ export interface ArticleState {
 
 首条链路保留一条来源引用，用户手工写正文；后续多 vault 计划将 sourceRef 扩展为证据清单，不更改 article.md 的可读性。
 
-- [ ] **Step 4: 运行 articles.test.ts、writer 仓库 npm test、typecheck；检查 versions 目录内容与 article.md 一致。**
+- [x] **Step 4: 运行 articles.test.ts、writer 仓库 npm test、typecheck；检查 versions 目录内容与 article.md 一致。**
 - [ ] **Step 5: 提交，提交信息 feat: persist reviewable article projects。**
 
 ### Task 6: 本地发布包与渠道预览
