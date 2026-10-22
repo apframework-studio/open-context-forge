@@ -116,7 +116,7 @@ export function createApp(_options: AppOptions) {
 main.ts 从 OCF_DATA_DIR、OCF_MAINTAINER_ROOT、OCF_PUBLISHER_ROOT、OCF_BLOG_ROOT 读取路径配置，前者缺失时选择平台用户数据目录；再调用 createApp(options).listen({ host: "127.0.0.1", port: 3081 })。Vite 配置 server.proxy 为 { "/api": "http://127.0.0.1:3081" }；React 的 App 用本地 state 切换四个导航区域，不先造假数据卡片。Fastify 在 onRequest 钩子中对非 GET/HEAD 的 /api/v1 路由检查 x-ocf-client 和允许的本机 Origin；前端 api.ts 统一添加该请求头。
 
 - [x] **Step 4: 运行 npm test --workspace apps/server、npm run typecheck、npm run build，确认均退出 0；浏览器打开本机首页，四个导航可切换。**
-- [ ] **Step 5: 提交本任务文件，提交信息 feat: add local workflow shell。**
+- [x] **Step 5: 提交本任务文件，提交信息 feat: add local workflow shell。**
 
 ### Task 2: Clipper ZIP 解析与预检
 
@@ -142,7 +142,7 @@ export interface CaptureCandidate {
 }
 ~~~
 
-- [ ] **Step 1: 写有效 ZIP、重复 ID、缺少 captures.json、过大 manifest、哈希不符、content_too_short 六个失败测试。**
+- [x] **Step 1: 写有效 ZIP、重复 ID、缺少 captures.json、过大 manifest、哈希不符、content_too_short 六个失败测试。**
 
 ~~~ts
 import { createHash } from "node:crypto";
@@ -167,8 +167,8 @@ test("reads one Clipper capture without extracting article paths", () => {
 
 缺失与过大案例应验证错误码，不依赖错误文字。
 
-- [ ] **Step 2: 运行 npm test --workspace apps/server -- clipper-zip，确认六个测试先失败。**
-- [ ] **Step 3: 实现解析。** 限制压缩包 20 MiB、captures.json 解压后 8 MiB、记录数 200。fflate 的 filter 在解压分配前检查 originalSize，只允许 captures.json；忽略 ZIP 内的其他路径，绝不落盘。校验 schemaVersion=1、必需字段类型、HTTP(S) URL、重复 ID、markdown 的 SHA-256；哈希按 Clipper 的 CRLF→LF 再 trim 规则计算。warnings 含 content_too_short 或 paywall_preview 时标为 incomplete。
+- [x] **Step 2: 运行 npm test --workspace apps/server -- clipper-zip，确认六个测试先失败。**
+- [x] **Step 3: 实现解析。** 限制压缩包 20 MiB、captures.json 解压后 8 MiB、记录数 200。fflate 的 filter 在解压分配前检查 originalSize，只允许 captures.json；忽略 ZIP 内的其他路径，绝不落盘。校验 schemaVersion=1、必需字段类型、HTTP(S) URL、重复 ID、markdown 的 SHA-256；哈希按 Clipper 的 CRLF→LF 再 trim 规则计算。warnings 含 content_too_short 或 paywall_preview 时标为 incomplete。
 
 ~~~ts
 const files = unzipSync(bytes, {
@@ -192,7 +192,7 @@ export class ImportError extends Error {
 }
 ~~~
 
-- [ ] **Step 4: 运行上述六个测试及 npm run typecheck，确认退出 0。**
+- [x] **Step 4: 运行上述六个测试及 npm run typecheck，确认退出 0。**
 - [ ] **Step 5: 提交，提交信息 feat: validate clipper zip imports。**
 
 ### Task 3: 上传预检和任务状态
