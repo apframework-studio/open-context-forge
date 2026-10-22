@@ -12,11 +12,14 @@ export interface Publication {
   articleId: string;
   revision: number;
   slug: string;
-  status: "prepared" | "stale";
+  status: "prepared" | "written-to-repository" | "deployment-pending" | "live" | "stale";
   sourceSha256: string;
   articlePath: string;
   assets: string[];
   mdx: string;
+  errorCode?: string;
+  commitSha?: string;
+  publicUrl?: string;
 }
 
 export class PublicationError extends Error {
@@ -32,10 +35,13 @@ interface PublicationRow {
   article_id: string;
   revision: number;
   slug: string;
-  status: "prepared";
+  status: Publication["status"];
   source_sha256: string;
   article_path: string;
   assets_json: string;
+  error_code: string | null;
+  commit_sha: string | null;
+  public_url: string | null;
 }
 
 function packageFile(root: string, path: string): string {
@@ -67,9 +73,17 @@ export class PublicationStore {
         source_sha256 TEXT NOT NULL,
         article_path TEXT NOT NULL,
         assets_json TEXT NOT NULL,
+        error_code TEXT,
+        commit_sha TEXT,
+        public_url TEXT,
+        worktree_path TEXT,
         UNIQUE(article_id, revision, slug)
       );
     `);
+    const columns = new Set((db.pragma("table_info(publications)") as { name: string }[]).map((item) => item.name));
+    for (const name of ["error_code", "commit_sha", "public_url", "worktree_path"]) {
+      if (!columns.has(name)) db.exec(`ALTER TABLE publications ADD COLUMN ${name} TEXT`);
+    }
   }
 
   private async fromRow(row: PublicationRow): Promise<Publication> {
@@ -81,12 +95,22 @@ export class PublicationStore {
       status: current.revision === row.revision && current.status === "final" ? row.status : "stale",
       sourceSha256: row.source_sha256, articlePath: row.article_path,
       assets: JSON.parse(row.assets_json) as string[], mdx,
+      ...(row.error_code ? { errorCode: row.error_code } : {}),
+      ...(row.commit_sha ? { commitSha: row.commit_sha } : {}),
+      ...(row.public_url ? { publicUrl: row.public_url } : {}),
     };
   }
 
   async get(articleId: string, publicationId: string): Promise<Publication> {
     const row = this.db.prepare("SELECT * FROM publications WHERE id = ? AND article_id = ?")
       .get(publicationId, articleId) as PublicationRow | undefined;
+    if (!row) throw new PublicationError("PUBLICATION_NOT_FOUND", 404);
+    return this.fromRow(row);
+  }
+
+  async getById(publicationId: string): Promise<Publication> {
+    const row = this.db.prepare("SELECT * FROM publications WHERE id = ?")
+      .get(publicationId) as PublicationRow | undefined;
     if (!row) throw new PublicationError("PUBLICATION_NOT_FOUND", 404);
     return this.fromRow(row);
   }

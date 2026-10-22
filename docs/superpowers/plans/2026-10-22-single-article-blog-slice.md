@@ -302,7 +302,7 @@ const report = JSON.parse((await runTool(process.execPath, args, {
 ~~~
 
 - [x] **Step 4: 运行 publisher.test.ts、publisher 仓库 npm test、typecheck；用一篇含图片的临时文章核对 MDX 与素材路径。**
-- [ ] **Step 5: 提交，提交信息 feat: prepare apframework preview packages。**
+- [x] **Step 5: 提交，提交信息 feat: prepare apframework preview packages。**
 
 ### Task 7: 确认发布、隔离写入与公开链接验证
 
@@ -314,9 +314,9 @@ const report = JSON.parse((await runTool(process.execPath, args, {
 - Produces: POST /api/v1/publications/:id/publish { confirmedRevision, confirmedArticlePath }；POST /api/v1/publications/:id/verify { publicUrl }。
 - 状态依次为 prepared → written-to-repository → deployment-pending → live；失败保留失败阶段和日志摘要。
 
-- [ ] **Step 1: 写测试：确认修订号不匹配返回 409；博客源工作区有未提交修改也不触碰它；隔离 worktree 构建失败不得 push；验证 URL 不含标题或代表性正文时不得标记 live；重复 publish 不重复提交。**
-- [ ] **Step 2: 运行 blog-deploy.test.ts，确认失败。**
-- [ ] **Step 3: 在已配置博客仓库运行 git fetch origin main，再从 origin/main 在应用数据目录创建独立 Git worktree。将预览过的同一 revision 用 publisher CLI 写入该 worktree；在隔离目录运行仓库自带的 node .yarn/releases/yarn-3.6.1.cjs install --immutable 与 node .yarn/releases/yarn-3.6.1.cjs build；检查只新增该文章的 MDX 与素材；提交后 push HEAD:main。push 失败停在 written-to-repository，并保留 worktree 供排查。确认操作只消费预先生成的 publicationId、confirmedRevision 与显示给用户的路径。**
+- [x] **Step 1: 写测试：确认修订号不匹配返回 409；博客源工作区有未提交修改也不触碰它；隔离 worktree 构建失败不得 push；验证 URL 不含标题或代表性正文时不得标记 live；重复 publish 不重复提交。**
+- [x] **Step 2: 运行 blog-deploy.test.ts，确认失败。**
+- [x] **Step 3: 在已配置博客仓库运行 git fetch origin main，再从 origin/main 在应用数据目录创建独立 Git worktree。将预览过的同一 revision 用 publisher CLI 写入该 worktree；在隔离目录运行仓库自带的 node .yarn/releases/yarn-3.6.1.cjs install --immutable 与 node .yarn/releases/yarn-3.6.1.cjs build；检查只新增该文章的 MDX 与素材；提交后 push HEAD:main。push 失败停在 written-to-repository，并保留 worktree 供排查。确认操作只消费预先生成的 publicationId、confirmedRevision 与显示给用户的路径。**
 
 ~~~ts
 if (request.confirmedRevision !== publication.revision) throw new ConflictError();
@@ -335,7 +335,7 @@ await runTool(process.execPath, [".yarn/releases/yarn-3.6.1.cjs", "build"],
 
 实现时对 Git diff 的允许路径做精确检查，再执行 git add/commit/push；无其他变更才可推进。verify 对公开 URL 发 GET，检查 HTTP 200、标题与来自定稿正文的代表性段落；最后在界面要求用户确认排版检查结果，再标记 live。真实推送和 URL 验证是手工验收步骤，自动测试使用本地 bare remote 与本地 HTTP fixture。
 
-- [ ] **Step 4: 运行 blog-deploy.test.ts、typecheck、build；在临时 bare remote 上验证成功与构建失败两条路径，确认源博客工作区状态不变。**
+- [x] **Step 4: 运行 blog-deploy.test.ts、typecheck、build；在临时 bare remote 上验证成功与构建失败两条路径，确认源博客工作区状态不变。**
 - [ ] **Step 5: 提交，提交信息 feat: publish and verify blog articles。**
 
 ### Task 8: 流程工作台连接真实状态

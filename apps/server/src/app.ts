@@ -8,6 +8,7 @@ import { ArticleStore } from "./articles/store.js";
 import { registerArticleRoutes } from "./articles/routes.js";
 import { PublicationStore } from "./publishing/publisher.js";
 import { registerPublicationRoutes } from "./publishing/routes.js";
+import { BlogDeploy } from "./publishing/blog-deploy.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -15,6 +16,8 @@ export interface AppOptions {
   publisherRoot?: string;
   blogRoot?: string;
   writerRoot?: string;
+  publicOrigin?: string;
+  verifyFetch?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 const allowedOrigins = new Set([
@@ -30,6 +33,7 @@ export function createApp(options: AppOptions) {
   const vaults = new VaultRegistry(db, options.dataDir, options.maintainerRoot);
   const articles = new ArticleStore(db, options.dataDir, vaults, options.writerRoot);
   const publications = new PublicationStore(db, options.dataDir, articles, options.publisherRoot);
+  const deploy = new BlogDeploy(db, options.dataDir, publications, articles, options);
   app.addHook("onClose", async () => db.close());
   app.addHook("onReady", async () => vaults.ensureDefault());
 
@@ -49,6 +53,6 @@ export function createApp(options: AppOptions) {
   registerImportRoutes(app, db);
   registerVaultRoutes(app, db, vaults);
   registerArticleRoutes(app, articles);
-  registerPublicationRoutes(app, publications);
+  registerPublicationRoutes(app, publications, deploy);
   return app;
 }
