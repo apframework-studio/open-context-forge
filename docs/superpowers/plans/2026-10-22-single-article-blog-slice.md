@@ -220,7 +220,7 @@ const insertBatch = db.transaction((batchId: string, items: CaptureCandidate[]) 
 ~~~
 
 - [x] **Step 4: 运行路由测试、typecheck，并重启进程验证 batchId 可重读。**
-- [ ] **Step 5: 提交，提交信息 feat: persist import preflight batches。**
+- [x] **Step 5: 提交，提交信息 feat: persist import preflight batches。**
 
 ### Task 4: Vault 登记与不可变来源导入
 
@@ -233,9 +233,9 @@ const insertBatch = db.transaction((batchId: string, items: CaptureCandidate[]) 
 - Produces: GET /api/v1/vaults（含默认 vault）、POST /api/v1/vaults { id, path, adopt? }、PUT /api/v1/vaults/default { vaultId }、POST /api/v1/imports/:batchId/items/:captureId/commit { vaultId }。
 - Produces: runTool(binary: string, args: string[], options: { cwd: string; timeoutMs: number }): Promise<{ stdout: string; stderr: string }>；importSnapshot(candidate, vaultPath): Promise<{ snapshot: string; fingerprint: string; duplicate: boolean }>。
 
-- [ ] **Step 1: 写测试：首次启动自动初始化内置 vault 并设为默认；重启不重复创建；外部已有 OCF vault 可登记，普通 Obsidian vault 仅在 adopt=true 时采用；同一 realpath 不可重复登记；默认 vault 可切换；incomplete 条目不可提交；有效条目调用 maintainer 后返回 vault 内快照路径；二次提交返回 duplicate。**
-- [ ] **Step 2: 运行 vaults.test.ts，确认失败。**
-- [ ] **Step 3: 实现 vaults(id, real_path, kind, is_default) 表和路径校验。应用启动时调用 vault-maintainer 的 init-vault.js 在 dataDir/vaults/default 初始化内置 vault，幂等登记为默认。外部目录已有 .ocf/vault.json 时直接登记；否则仅在用户明确选择 adopt 时调用 adopt-vault.js，且调用前在界面列出将创建的内容。maintainer 路径来自服务启动配置，不能由请求指定。将来源标题、URL、时间、作者、备注和正文写为临时 Markdown，调用现有 import-markdown.js --vault <path> --file <temp> --url <url> --authorship third_party --json；未知原作者不传 --author。成功后解析 JSON 报告，校验 snapshot 相对路径仍在 vault 内，并删除临时文件。**
+- [x] **Step 1: 写测试：首次启动自动初始化内置 vault 并设为默认；重启不重复创建；外部已有 OCF vault 可登记，普通 Obsidian vault 仅在 adopt=true 时采用；同一 realpath 不可重复登记；默认 vault 可切换；incomplete 条目不可提交；有效条目调用 maintainer 后返回 vault 内快照路径；二次提交返回 duplicate。**
+- [x] **Step 2: 运行 vaults.test.ts，确认失败。**
+- [x] **Step 3: 实现 vaults(id, real_path, kind, is_default) 表和路径校验。应用启动时调用 vault-maintainer 的 init-vault.js 在 dataDir/vaults/default 初始化内置 vault，幂等登记为默认。外部目录已有 .ocf/vault.json 时直接登记；否则仅在用户明确选择 adopt 时调用 adopt-vault.js，且调用前在界面列出将创建的内容。maintainer 路径来自服务启动配置，不能由请求指定。将来源标题、URL、时间、作者、备注和正文写为临时 Markdown，调用现有 import-markdown.js --vault <path> --file <temp> --url <url> --authorship third_party --json；未知原作者不传 --author。成功后解析 JSON 报告，校验 snapshot 相对路径仍在 vault 内，并删除临时文件。**
 
 ~~~ts
 const args = [maintainerScript, "--vault", vaultPath, "--file", temporaryMarkdown,
@@ -247,7 +247,7 @@ const report = JSON.parse(result.stdout);
 
 导入状态在 CLI 成功后才从 ready 改为 imported；失败保存 error_code，并保持可重试。测试通过真实临时 vault + 现有 maintainer 脚本运行一例，其余测试可注入假 runner。
 
-- [ ] **Step 4: 运行 vaults.test.ts、maintainer 仓库 npm test、typecheck；确认快照哈希由 maintainer 校验。**
+- [x] **Step 4: 运行 vaults.test.ts、maintainer 仓库 npm test、typecheck；确认快照哈希由 maintainer 校验。**
 - [ ] **Step 5: 提交，提交信息 feat: import captures into selected vault。**
 
 ### Task 5: 文章项目与人工编辑

@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import { registerImportRoutes } from "./import/routes.js";
 import { openDatabase } from "./state/db.js";
+import { VaultRegistry } from "./vaults/registry.js";
+import { registerVaultRoutes } from "./vaults/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -20,7 +22,9 @@ const allowedOrigins = new Set([
 export function createApp(options: AppOptions) {
   const app = Fastify();
   const db = openDatabase(options.dataDir);
+  const vaults = new VaultRegistry(db, options.dataDir, options.maintainerRoot);
   app.addHook("onClose", async () => db.close());
+  app.addHook("onReady", async () => vaults.ensureDefault());
 
   app.register(multipart, {
     limits: { files: 1, parts: 1, fileSize: 20 * 1024 * 1024 },
@@ -36,5 +40,6 @@ export function createApp(options: AppOptions) {
 
   app.get("/api/v1/health", async () => ({ status: "ok" }));
   registerImportRoutes(app, db);
+  registerVaultRoutes(app, db, vaults);
   return app;
 }

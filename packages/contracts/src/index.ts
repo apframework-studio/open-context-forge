@@ -5,6 +5,7 @@ export interface CaptureCandidate {
   title: string;
   originalUrl: string;
   author?: string;
+  note?: string;
   capturedAt: string;
   markdown: string;
   contentHash: string;

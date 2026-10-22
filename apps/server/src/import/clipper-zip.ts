@@ -54,6 +54,7 @@ function candidateFrom(value: unknown): CaptureCandidate {
     !["readability", "site-adapter", "fallback"].includes(String(capture.extractor)) ||
     typeof capture.contentHash !== "string" || !/^[a-f0-9]{64}$/.test(capture.contentHash) ||
     !Array.isArray(capture.warnings) || !capture.warnings.every((item) => typeof item === "string") ||
+    (value.user.note !== undefined && typeof value.user.note !== "string") ||
     typeof value.delivery.status !== "string" || typeof value.delivery.attempts !== "number") {
     throw new ImportError("INVALID_RECORD");
   }
@@ -69,6 +70,7 @@ function candidateFrom(value: unknown): CaptureCandidate {
     title: source.title,
     originalUrl: source.originalUrl,
     ...(source.author ? { author: source.author as string } : {}),
+    ...(value.user.note ? { note: value.user.note as string } : {}),
     capturedAt: capture.capturedAt,
     markdown: content.markdown,
     contentHash: capture.contentHash,
