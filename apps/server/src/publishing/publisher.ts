@@ -23,7 +23,7 @@ export interface Publication {
 }
 
 export class PublicationError extends Error {
-  constructor(readonly code: "INVALID_SLUG" | "ARTICLE_NOT_FINAL" | "PUBLICATION_NOT_FOUND" | "PUBLISHER_FAILED" | "INVALID_PACKAGE", readonly statusCode: number) {
+  constructor(readonly code: "INVALID_SLUG" | "ARTICLE_NOT_FINAL" | "PUBLICATION_NOT_FOUND" | "ASSET_NOT_FOUND" | "PUBLISHER_FAILED" | "INVALID_PACKAGE", readonly statusCode: number) {
     super(code);
   }
 }
@@ -113,6 +113,15 @@ export class PublicationStore {
       .get(publicationId) as PublicationRow | undefined;
     if (!row) throw new PublicationError("PUBLICATION_NOT_FOUND", 404);
     return this.fromRow(row);
+  }
+
+  async readAsset(publicationId: string, path: unknown): Promise<Buffer> {
+    const publication = await this.getById(publicationId);
+    if (typeof path !== "string" || !publication.assets.includes(path)) {
+      throw new PublicationError("ASSET_NOT_FOUND", 404);
+    }
+    const root = realpathSync(join(this.root, publicationId));
+    return readFile(packageFile(root, path));
   }
 
   async prepare(articleId: string, slug: unknown): Promise<{ publication: Publication; created: boolean }> {

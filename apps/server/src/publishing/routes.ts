@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { extname } from "node:path";
 import { ArticleError } from "../articles/store.js";
 import { PublicationError, PublicationStore } from "./publisher.js";
 import { BlogDeploy, BlogDeployError } from "./blog-deploy.js";
@@ -11,6 +12,20 @@ function respond(error: unknown) {
 }
 
 export function registerPublicationRoutes(app: FastifyInstance, store: PublicationStore, deploy: BlogDeploy): void {
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/api/v1/publications/:id/asset", async (request, reply) => {
+    try {
+      const path = request.query.path;
+      const bytes = await store.readAsset(request.params.id, path);
+      const mime: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".avif": "image/avif" };
+      return reply.header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .type(mime[extname(path ?? "").toLowerCase()] ?? "application/octet-stream").send(bytes);
+    } catch (error) {
+      const result = respond(error);
+      if (result) return reply.code(result.status).send(result.body);
+      throw error;
+    }
+  });
+
   app.post<{ Params: { id: string }; Body: { slug?: unknown } }>("/api/v1/articles/:id/publications/prepare", async (request, reply) => {
     try {
       const { publication, created } = await store.prepare(request.params.id, request.body?.slug);

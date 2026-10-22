@@ -336,7 +336,7 @@ await runTool(process.execPath, [".yarn/releases/yarn-3.6.1.cjs", "build"],
 实现时对 Git diff 的允许路径做精确检查，再执行 git add/commit/push；无其他变更才可推进。verify 对公开 URL 发 GET，检查 HTTP 200、标题与来自定稿正文的代表性段落；最后在界面要求用户确认排版检查结果，再标记 live。真实推送和 URL 验证是手工验收步骤，自动测试使用本地 bare remote 与本地 HTTP fixture。
 
 - [x] **Step 4: 运行 blog-deploy.test.ts、typecheck、build；在临时 bare remote 上验证成功与构建失败两条路径，确认源博客工作区状态不变。**
-- [ ] **Step 5: 提交，提交信息 feat: publish and verify blog articles。**
+- [x] **Step 5: 提交，提交信息 feat: publish and verify blog articles。**
 
 ### Task 8: 流程工作台连接真实状态
 
@@ -348,7 +348,7 @@ await runTool(process.execPath, [".yarn/releases/yarn-3.6.1.cjs", "build"],
 - Consumes: Tasks 3–7 的 /api/v1 路由。
 - Produces: 可操作的资料导入、vault 确认、文章编辑、Markdown 预览、发布包审阅、发布确认和状态查询界面。
 
-- [ ] **Step 1: 写 Playwright 测试，确认内置 vault 已默认选中；添加并切换到外部 vault；上传内存 ZIP；确认导入；编辑文章；在预览中检查标题；打开发布确认框但不执行真实 push。**
+- [x] **Step 1: 写 Playwright 测试，确认内置 vault 已默认选中；添加并切换到外部 vault；上传内存 ZIP；确认导入；编辑文章；在预览中检查标题；打开发布确认框但不执行真实 push。**
 
 ~~~ts
 import { test, expect } from "@playwright/test";
@@ -369,8 +369,8 @@ test("single article reaches a reviewed publication package", async ({ page }) =
 });
 ~~~
 
-- [ ] **Step 2: 运行 npm run test:e2e，确认因页面缺少控件而失败。**
-- [ ] **Step 3: 将导航页接到真实 API；文件 input 调用 preflight，候选列表显示 ready/incomplete 与错误；textarea 自动保存时带 expectedRevision；Markdown 预览用 react-markdown + remark-gfm，禁用原始 HTML；发布页显示 prepared 与 live 的不同文案。所有会修改文件或远程博客的按钮明确列出目标与版本。**
+- [x] **Step 2: 运行 npm run test:e2e，确认因页面缺少控件而失败。**
+- [x] **Step 3: 将导航页接到真实 API；文件 input 调用 preflight，候选列表显示 ready/incomplete 与错误；textarea 自动保存时带 expectedRevision；Markdown 预览用 react-markdown + remark-gfm，禁用原始 HTML；发布页显示 prepared 与 live 的不同文案。所有会修改文件或远程博客的按钮明确列出目标与版本。**
 
 ~~~tsx
 import Markdown from "react-markdown";
@@ -381,8 +381,8 @@ export function ArticlePreview({ body }: { body: string }) {
 }
 ~~~
 
-- [ ] **Step 4: 运行 npm test、npm run typecheck、npm run build、npm run test:e2e；人工在 1024px 和 375px 检查布局、键盘焦点与错误提示。**
-- [ ] **Step 5: 提交，提交信息 feat: connect local publishing workflow ui。**
+- [x] **Step 4: 运行 npm test、npm run typecheck、npm run build、npm run test:e2e；人工在 1024px 和 375px 检查布局、键盘焦点与错误提示。**
+- [x] **Step 5: 提交，提交信息 feat: connect local publishing workflow ui。**
 
 ## 完成判定与后续交接
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "vitest";
@@ -92,5 +92,20 @@ test("a heading-only draft cannot be finalized", async () => {
     const final = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`, headers: { "x-ocf-client": "1" }, payload: { expectedRevision: 0 } });
     expect(final.statusCode).toBe(422);
     expect(final.json()).toMatchObject({ error: "ARTICLE_CHECK_FAILED" });
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test("local preview can read an image inside the article project only", async () => {
+  const { dataDir, app, sourceRef } = await setup();
+  try {
+    const created = (await createArticle(app, sourceRef)).json();
+    const assets = join(dataDir, "writing-projects", created.id, "assets");
+    mkdirSync(assets);
+    writeFileSync(join(assets, "figure.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+    const good = await app.inject({ method: "GET", url: `/api/v1/articles/${created.id}/asset?path=assets%2Ffigure.svg` });
+    expect(good.statusCode).toBe(200);
+    expect(good.headers["content-type"]).toContain("image/svg+xml");
+    const escaped = await app.inject({ method: "GET", url: `/api/v1/articles/${created.id}/asset?path=..%2F..%2Fsource.md` });
+    expect(escaped.statusCode).toBe(404);
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });

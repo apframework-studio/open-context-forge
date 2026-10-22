@@ -122,6 +122,18 @@ export class ArticleStore {
     return { id, revision: row.revision, status: row.status, markdown, ...input };
   }
 
+  async readAsset(id: string, path: unknown): Promise<Buffer> {
+    await this.get(id);
+    if (typeof path !== "string" || !path.startsWith("assets/") || path.includes("..") ||
+      !/\.(?:png|jpe?g|gif|webp|svg|avif)$/i.test(path)) throw new ArticleError("ARTICLE_NOT_FOUND", 404);
+    const project = this.project(id);
+    const target = resolve(project, path);
+    const rel = relative(project, target);
+    if (!rel.startsWith(`assets${sep}`) || !existsSync(target) ||
+      !realpathSync(target).startsWith(`${realpathSync(project)}${sep}`)) throw new ArticleError("ARTICLE_NOT_FOUND", 404);
+    return readFile(target);
+  }
+
   private async writeRevision(state: ArticleState, markdown: string, status: "draft" | "final"): Promise<ArticleState> {
     const project = this.project(state.id);
     const revision = state.revision + 1;

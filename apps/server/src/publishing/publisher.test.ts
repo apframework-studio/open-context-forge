@@ -60,6 +60,10 @@ test("final article prepares a portable MDX package with copied local image", as
     const packageRoot = join(dataDir, "publications", publication.id);
     expect(readFileSync(join(packageRoot, "publication.json"), "utf8")).toContain("2026-10-22-my-article.mdx");
     expect(readFileSync(join(packageRoot, publication.assets[0]), "utf8")).toContain("<svg");
+    const image = await app.inject({ method: "GET", url: `/api/v1/publications/${publication.id}/asset?path=${encodeURIComponent(publication.assets[0])}` });
+    expect(image.statusCode).toBe(200);
+    expect(image.headers["content-type"]).toContain("image/svg+xml");
+    expect(image.body).toContain("<svg");
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
