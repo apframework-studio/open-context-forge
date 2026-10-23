@@ -6,6 +6,8 @@
 
 需要 Node.js 22.12+，并在本仓库同级目录放置 `open-context-forge-vault-maintainer`、`open-context-forge-tech-article-writer` 和 `open-context-forge-article-publisher`。也可分别通过 `OCF_MAINTAINER_ROOT`、`OCF_WRITER_ROOT`、`OCF_PUBLISHER_ROOT` 指定它们的绝对路径。
 
+使用 nvm 时先运行 `nvm use`，并确保安装依赖与启动服务使用同一个 Node.js 版本。`better-sqlite3` 是原生模块；切换 Node.js 版本后若出现 `NODE_MODULE_VERSION` 错误，在目标版本下运行 `npm rebuild better-sqlite3`。
+
 ```bash
 npm install
 npm run dev
