@@ -24,6 +24,8 @@ npm run test:e2e
 
 端到端测试使用本机安装的 Chrome、临时应用数据目录和临时外部 vault；不会推送真实博客。
 
+2026-10-23 已用 `apframework.com` 的 `origin/main` 临时副本验证渠道兼容性：现有发布器生成的样例 MDX 被 Contentlayer 收录，`yarn install --immutable` 与完整 `yarn build` 通过，静态页面生成于 `/blog/essay/2026-10-23-ocf-build-compat-check`。博客构建会向 Google Fonts 下载字体，因此构建环境需要能访问该服务。此检查没有修改或推送真实博客仓库。
+
 ## 当前范围
 
 这一阶段已完成单篇资料到博客的可操作链路。批量分析、双 vault 联合证据、Codex 协作、公众号导入包和 SaaS 部署按 [产品设计](docs/superpowers/specs/2026-10-22-open-context-forge-v1-design.md) 分阶段接入。发布状态区分“本地包已准备”“已写入并推送”“公开链接已验证”。
