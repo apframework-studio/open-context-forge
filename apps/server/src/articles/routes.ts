@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { extname } from "node:path";
-import { ArticleError, ArticleStore, type ArticleInput } from "./store.js";
+import { ArticleError, ArticleStore, type ArticleCreateInput, type ArticleDraftInput } from "./store.js";
 
 function handle(error: unknown) {
   if (error instanceof ArticleError) return { status: error.statusCode, body: { error: error.code } };
@@ -21,7 +21,9 @@ export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore)
     }
   });
 
-  app.post<{ Body: ArticleInput }>("/api/v1/articles", async (request, reply) => {
+  app.get("/api/v1/articles", async () => ({ items: await store.list() }));
+
+  app.post<{ Body: ArticleCreateInput }>("/api/v1/articles", async (request, reply) => {
     try {
       return reply.code(201).send(await store.create(request.body));
     } catch (error) {
@@ -40,8 +42,8 @@ export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore)
     }
   });
 
-  app.put<{ Params: { id: string }; Body: { markdown?: unknown; expectedRevision?: unknown } }>("/api/v1/articles/:id/draft", async (request, reply) => {
-    try { return await store.saveDraft(request.params.id, request.body?.markdown, request.body?.expectedRevision); }
+  app.put<{ Params: { id: string }; Body: ArticleDraftInput & { expectedRevision?: unknown } }>("/api/v1/articles/:id/draft", async (request, reply) => {
+    try { return await store.saveDraft(request.params.id, request.body, request.body?.expectedRevision); }
     catch (error) {
       const result = handle(error);
       if (result) return reply.code(result.status).send(result.body);

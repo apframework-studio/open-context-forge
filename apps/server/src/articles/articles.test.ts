@@ -38,6 +38,60 @@ test("creates an inspectable article project with public metadata and source ref
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
+test("creates an empty article first and collects public metadata while writing", async () => {
+  const { dataDir, app } = await setup();
+  try {
+    const createdResponse = await app.inject({ method: "POST", url: "/api/v1/articles",
+      headers: { "x-ocf-client": "1" }, payload: {} });
+    expect(createdResponse.statusCode).toBe(201);
+    const created = createdResponse.json();
+    expect(created).toMatchObject({ title: "", summary: "", date: "", sourceRef: null, markdown: "", revision: 0, status: "draft" });
+    const initialList = await app.inject({ method: "GET", url: "/api/v1/articles" });
+    expect(initialList.json().items[0]).toMatchObject({ id: created.id, stage: "new", publicationId: null });
+
+    const body = await app.inject({ method: "PUT", url: `/api/v1/articles/${created.id}/draft`,
+      headers: { "x-ocf-client": "1" }, payload: { markdown: "# 临时想法\n\n开始写正文。", expectedRevision: 0 } });
+    expect(body.statusCode).toBe(200);
+    expect(body.json()).toMatchObject({ revision: 1, title: "", status: "draft" });
+    expect((await app.inject({ method: "GET", url: "/api/v1/articles" })).json().items[0].stage).toBe("writing");
+    const premature = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`,
+      headers: { "x-ocf-client": "1" }, payload: { expectedRevision: 1 } });
+    expect(premature.statusCode).toBe(422);
+
+    const metadata = await app.inject({ method: "PUT", url: `/api/v1/articles/${created.id}/draft`,
+      headers: { "x-ocf-client": "1" }, payload: { title: "正式标题", summary: "公开摘要", date: "2026-10-24", expectedRevision: 1 } });
+    expect(metadata.statusCode).toBe(200);
+    expect(metadata.json()).toMatchObject({ title: "正式标题", summary: "公开摘要", date: "2026-10-24", revision: 2 });
+    expect(readFileSync(join(dataDir, "writing-projects", created.id, "article.md"), "utf8")).toContain("title: '正式标题'");
+    const final = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`,
+      headers: { "x-ocf-client": "1" }, payload: { expectedRevision: 2 } });
+    expect(final.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/articles" })).json().items[0].stage).toBe("complete");
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test("article list keeps separate drafts and marks prepared publications as pending", async () => {
+  const { dataDir, app, sourceRef } = await setup();
+  try {
+    const first = (await createArticle(app, sourceRef)).json();
+    const second = (await app.inject({ method: "POST", url: "/api/v1/articles",
+      headers: { "x-ocf-client": "1" }, payload: {} })).json();
+    await app.inject({ method: "PUT", url: `/api/v1/articles/${first.id}/draft`, headers: { "x-ocf-client": "1" },
+      payload: { markdown: "# 我的文章\n\n足够完整的正文。", expectedRevision: 0 } });
+    await app.inject({ method: "POST", url: `/api/v1/articles/${first.id}/finalize`, headers: { "x-ocf-client": "1" },
+      payload: { expectedRevision: 1 } });
+    const prepared = await app.inject({ method: "POST", url: `/api/v1/articles/${first.id}/publications/prepare`,
+      headers: { "x-ocf-client": "1" }, payload: { slug: "first-article" } });
+    expect(prepared.statusCode).toBe(201);
+    const items = (await app.inject({ method: "GET", url: "/api/v1/articles" })).json().items;
+    expect(items).toHaveLength(2);
+    expect(items.find((item: { id: string }) => item.id === first.id)).toMatchObject({
+      title: "我的文章", stage: "pending_publish", publicationId: prepared.json().id,
+    });
+    expect(items.find((item: { id: string }) => item.id === second.id)).toMatchObject({ title: "", stage: "new" });
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
 test("saving a draft creates a new revision and rejects a stale revision", async () => {
   const { dataDir, app, sourceRef } = await setup();
   try {

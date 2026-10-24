@@ -139,3 +139,21 @@ test("commits an immutable source snapshot and repeated commit reports duplicate
     expect(batch.json().candidates[0].status).toBe("imported");
   } finally { await app.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("vault source index lists filed content and exposes its checked snapshot", async () => {
+  const { root, dataDir } = workspace();
+  const app = createApp({ dataDir, maintainerRoot });
+  try {
+    const batchId = await preflight(app);
+    const filed = await app.inject({ method: "POST", url: `/api/v1/imports/${batchId}/items/capture-1/commit`,
+      headers: { "x-ocf-client": "1" }, payload: { vaultId: "default" } });
+    const fingerprint = filed.json().fingerprint;
+    const listed = await app.inject({ method: "GET", url: "/api/v1/vaults/default/sources?page=1&pageSize=20" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().total).toBe(1);
+    expect(listed.json().items[0]).toMatchObject({ fingerprint, title: "来源文章" });
+    const detail = await app.inject({ method: "GET", url: `/api/v1/vaults/default/sources/${fingerprint}` });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().markdown).toContain("这是一篇真实来源的正文。");
+  } finally { await app.close(); rmSync(root, { recursive: true, force: true }); }
+});

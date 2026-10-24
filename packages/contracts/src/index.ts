@@ -3,7 +3,8 @@ export type WorkspaceArea = "资料与分析" | "知识库" | "文章工作台" 
 export interface CaptureCandidate {
   id: string;
   title: string;
-  originalUrl: string;
+  originalUrl: string | null;
+  sourceFilename?: string;
   author?: string;
   note?: string;
   capturedAt: string;

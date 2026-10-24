@@ -8,7 +8,12 @@ type ImportErrorCode =
   | "INVALID_JSON"
   | "INVALID_RECORD"
   | "HASH_MISMATCH"
-  | "MANIFEST_TOO_LARGE";
+  | "MANIFEST_TOO_LARGE"
+  | "UNSUPPORTED_FILE"
+  | "NO_SUPPORTED_FILES"
+  | "INVALID_TEXT_FILE"
+  | "TEXT_TOO_LARGE"
+  | "TOO_MANY_FILES";
 
 export class ImportError extends Error {
   constructor(readonly code: ImportErrorCode) {

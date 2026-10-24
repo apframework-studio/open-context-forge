@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
@@ -20,12 +20,12 @@ function capture(id: string, warnings: string[] = []) {
   };
 }
 
-function multipart(bytes: Uint8Array) {
+function multipart(bytes: Uint8Array, filename = "clipper.zip", type = "application/zip") {
   const boundary = "ocf-test-boundary";
   return {
     headers: { "content-type": `multipart/form-data; boundary=${boundary}`, "x-ocf-client": "1" },
     payload: Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="clipper.zip"\r\nContent-Type: application/zip\r\n\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`),
       Buffer.from(bytes),
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]),
@@ -57,6 +57,47 @@ test("preflight persists ready and incomplete candidates across restart", async 
     await first.close();
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test("imports a local Markdown file through the existing pending and vault flow", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "ocf-local-import-"));
+  const app = createApp({ dataDir });
+  try {
+    const response = await app.inject({ method: "POST", url: "/api/v1/imports/preflight",
+      ...multipart(strToU8("# 本地研究\n\n完整正文"), "本地研究.md", "text/markdown") });
+    expect(response.statusCode).toBe(201);
+    const candidate = response.json().candidates[0];
+    expect(candidate).toMatchObject({ title: "本地研究", originalUrl: null, sourceFilename: "本地研究.md" });
+    const pending = await app.inject({ method: "GET", url: "/api/v1/imports/items?view=pending" });
+    expect(pending.json().items.map((item: { title: string }) => item.title)).toContain("本地研究");
+    const byFilename = await app.inject({ method: "GET", url: "/api/v1/imports/items?view=all&q=%E6%9C%AC%E5%9C%B0%E7%A0%94%E7%A9%B6.md" });
+    expect(byFilename.json().total).toBe(1);
+
+    const filed = await app.inject({ method: "POST", url: "/api/v1/imports/items/actions",
+      headers: { "x-ocf-client": "1" },
+      payload: { action: "file", vaultId: "default", items: [{ batchId: response.json().batchId, captureId: candidate.id }] } });
+    expect(filed.json().results[0].ok).toBe(true);
+    const snapshot = filed.json().results[0].snapshot as string;
+    const markdown = readFileSync(join(dataDir, "vaults", "default", snapshot), "utf8");
+    expect(markdown).toContain("本地文件：本地研究.md");
+    expect(markdown).not.toContain("https://local");
+    const manifest = JSON.parse(readFileSync(join(dataDir, "vaults", "default", ".ocf", "ingest-manifest.json"), "utf8"));
+    const origin = Object.values(manifest.sources)[0] as { authorship: string; origins: { filename: string }[] };
+    expect(origin.authorship).toBe("unknown");
+    expect(origin.origins[0].filename).toBe("本地研究.md");
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test("a regular text ZIP creates multiple pending items in one batch", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "ocf-text-zip-"));
+  const app = createApp({ dataDir });
+  try {
+    const zip = zipSync({ "a.md": strToU8("# A\n\n正文"), "b.html": strToU8("<h1>B</h1><p>内容</p>"), "image.png": strToU8("not text") });
+    const response = await app.inject({ method: "POST", url: "/api/v1/imports/preflight", ...multipart(zip, "documents.zip") });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().candidates.map((item: { title: string }) => item.title)).toEqual(["A", "B"]);
+    expect(response.json().skippedFiles).toBe(1);
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
 test("rejects a multipart file larger than 20 MiB", async () => {

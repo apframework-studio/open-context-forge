@@ -12,7 +12,7 @@ export interface Vault {
 }
 
 export class VaultError extends Error {
-  constructor(readonly code: "INVALID_VAULT" | "ADOPTION_REQUIRED" | "VAULT_EXISTS" | "VAULT_NOT_FOUND", readonly status: number, readonly plannedChanges?: string[]) {
+  constructor(readonly code: "INVALID_VAULT" | "ADOPTION_REQUIRED" | "VAULT_EXISTS" | "VAULT_NOT_FOUND" | "BUILT_IN_VAULT", readonly status: number, readonly plannedChanges?: string[]) {
     super(code);
   }
 }
@@ -112,5 +112,18 @@ export class VaultRegistry {
       this.db.prepare("UPDATE vaults SET is_default = 1 WHERE id = ?").run(id);
     })();
     return { defaultVaultId: id };
+  }
+
+  disconnect(id: string): { defaultVaultId: string } {
+    const vault = this.get(id);
+    if (!vault) throw new VaultError("VAULT_NOT_FOUND", 404);
+    if (vault.kind === "built-in") throw new VaultError("BUILT_IN_VAULT", 409);
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM vaults WHERE id = ?").run(id);
+      this.db.prepare("UPDATE import_policy SET mode = 'manual', vault_id = NULL WHERE vault_id = ?").run(id);
+      this.db.prepare("UPDATE import_batches SET auto_vault_id = NULL WHERE auto_vault_id = ?").run(id);
+      if (vault.isDefault) this.db.prepare("UPDATE vaults SET is_default = 1 WHERE id = 'default'").run();
+    })();
+    return { defaultVaultId: this.list().defaultVaultId };
   }
 }

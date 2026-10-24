@@ -2,14 +2,15 @@ import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type Article, type Publication } from "../api";
+import { WorkspaceIcon } from "../WorkspaceIcon";
 
-interface Props { articleId: string | null; publicationId: string | null; onPublication: (id: string) => void }
+interface Props { articleId: string | null; publicationId: string | null; onPublication: (id: string) => void; onOpenArticles: () => void }
 
 function publicationBody(mdx: string): string {
   return mdx.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
 }
 
-export function PublishScreen({ articleId, publicationId, onPublication }: Props) {
+export function PublishScreen({ articleId, publicationId, onPublication, onOpenArticles }: Props) {
   const [article, setArticle] = useState<Article | null>(null);
   const [publication, setPublication] = useState<Publication | null>(null);
   const [slug, setSlug] = useState("");
@@ -55,7 +56,11 @@ export function PublishScreen({ articleId, publicationId, onPublication }: Props
     finally { setBusy(false); }
   }
 
-  if (!article) return <section className="panel-card"><div className="section-heading"><div><span className="overline">PUBLISH</span><h2>预览与发布</h2></div></div><p className="muted">先在“文章工作台”完成文章定稿。</p></section>;
+  if (!article) return <section className="panel-card onboarding-panel">
+    <span className="onboarding-symbol"><WorkspaceIcon name="publish" size={22} /></span>
+    <div><h2>文章定稿后即可预览渠道效果</h2><p>在文章工作台完成正文和定稿，再准备博客发布包并检查本地预览。</p></div>
+    <button className="primary-button" onClick={onOpenArticles}>前往文章工作台</button>
+  </section>;
 
   return <div className="screen-stack">
     <section className="panel-card"><div className="section-heading"><div><span className="overline">APFRAMEWORK</span><h2>博客发布准备</h2></div><span className={`tag ${article.status === "final" ? "success" : "warning"}`}>{article.status === "final" ? "可准备" : "需定稿"}</span></div>

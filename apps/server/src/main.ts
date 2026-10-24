@@ -8,11 +8,13 @@ mkdirSync(dataDir, { recursive: true });
 
 const app = createApp({
   dataDir,
+  allowedOrigins: process.env.OCF_WEB_ORIGIN ? [process.env.OCF_WEB_ORIGIN] : undefined,
   maintainerRoot: process.env.OCF_MAINTAINER_ROOT,
   publisherRoot: process.env.OCF_PUBLISHER_ROOT,
   blogRoot: process.env.OCF_BLOG_ROOT,
   writerRoot: process.env.OCF_WRITER_ROOT,
+  readerRoot: process.env.OCF_READER_ROOT,
   publicOrigin: process.env.OCF_BLOG_PUBLIC_ORIGIN,
 });
 
-await app.listen({ host: "127.0.0.1", port: 3081 });
+await app.listen({ host: "127.0.0.1", port: Number(process.env.OCF_PORT ?? 3081) });
