@@ -109,12 +109,14 @@ input[type="file"]::file-selector-button:hover { background: var(--ocf-subtle); 
 .article-mode-switch button { color: var(--ocf-muted); font-weight: 400; }
 .article-mode-switch button[aria-pressed="true"] { color: var(--ocf-text); font-weight: 500; box-shadow: 0 1px 3px rgb(var(--ocf-shadow-rgb) / .06); }
 .article-context-bar > .secondary-button { border-color: #dce4f0; background: #fbfcff; color: #46638d; }
-.article-writing-layout.mode-write { gap: 0; border: 1px solid var(--ocf-border); border-radius: 9px; background: var(--ocf-surface); overflow: hidden; }
-.article-writing-layout.mode-write .article-manuscript, .article-writing-layout.mode-write .article-chat { border: 0; border-radius: 0; box-shadow: none; }
+.article-writing-layout.mode-write { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--ocf-border); border-radius: 9px; background: var(--ocf-surface); overflow: hidden; }
+.article-writing-layout.mode-write.focus-chat { grid-template-columns: minmax(0, 1fr); }
+.article-writing-layout.mode-write .article-manuscript, .article-writing-layout.mode-write .article-chat { min-width: 0; border: 0; border-radius: 0; box-shadow: none; }
 .article-writing-layout.mode-write .article-chat { border-left: 1px solid var(--ocf-border); }
 .article-writing-layout.focus-chat .article-chat { border-left: 0; }
-.article-chat-header, .article-manuscript-head { min-height: 46px; border-bottom-color: var(--ocf-border); }
-.article-manuscript-head { padding: 0 16px; }
+.article-chat-header, .article-manuscript-head { box-sizing: border-box; height: 46px; min-height: 46px; padding-block: 0; border-bottom-color: var(--ocf-border); }
+.article-chat-header { padding-inline: 16px; }
+.article-manuscript-head { padding-inline: 16px; }
 .article-manuscript-head [role="tablist"] { align-self: stretch; gap: 17px; }
 .article-manuscript-head [role="tablist"] button { display: flex; align-items: center; min-height: 44px; padding: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--ocf-muted); font-weight: 400; }
 .article-manuscript-head [role="tablist"] button[aria-selected="true"] { border-bottom-color: var(--ocf-accent); background: transparent; color: var(--ocf-text); font-weight: 600; }

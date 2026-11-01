@@ -150,10 +150,13 @@ test("staged outline and body require review and adoption, context changes revok
   const review = page.getByRole("dialog", { name: "采用智能体正文" });
   await expect(review).toContainText("经过审阅才进入正式正文");
   await expect(page.getByRole("region", { name: "文章正文" })).toHaveCount(0);
+  await expect(page.getByLabel("文章标题")).toHaveValue("");
   await review.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "审阅正文草稿" }).click();
   await review.getByRole("button", { name: "替换正文", exact: true }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("智能体候选正文");
+  await expect(page.getByLabel("文章标题")).toHaveValue("智能体候选正文");
+  await page.getByLabel("文章标题").fill("手动设置标题");
   await page.getByRole("tab", { name: "大纲", exact: true }).click();
   await page.getByRole("button", { name: "审阅大纲草案" }).click();
   const outline = page.getByRole("dialog", { name: "采用大纲草案" });
@@ -162,6 +165,8 @@ test("staged outline and body require review and adoption, context changes revok
   await expect(page.getByRole("region", { name: "文章大纲" })).toContainText("候选大纲");
   await page.getByRole("button", { name: "确认大纲", exact: true }).click();
   await expect(page.getByLabel("大纲状态")).toContainText("已确认");
+  await expect(page.getByLabel("向智能体提问")).toHaveValue(/按本轮已确认的大纲起草文章/);
+  await expect(page.getByRole("button", { name: "按大纲起草正文" })).toHaveCount(0);
   await page.getByRole("button", { name: "选择创作资料", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "选择创作资料" });
   await drawer.getByLabel("选择知识库 default", { exact: true }).check();
@@ -173,11 +178,11 @@ test("staged outline and body require review and adoption, context changes revok
   await drawer.getByRole("button", { name: "带入对话（0）" }).click();
   await page.getByRole("tab", { name: "大纲", exact: true }).click();
   await expect(page.getByLabel("大纲状态")).toContainText("待审阅");
-  await expect(page.getByRole("button", { name: "按大纲起草正文" })).toBeDisabled();
   await expect(page.locator(".article-save-line")).toContainText(/草稿已保存|已自动保存/);
   await page.reload();
   await page.getByRole("button", { name: "文章工作台", exact: true }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("智能体候选正文");
+  await expect(page.getByLabel("文章标题")).toHaveValue("手动设置标题");
   await page.getByRole("tab", { name: "大纲", exact: true }).click();
   await expect(page.getByRole("region", { name: "文章大纲" })).toContainText("候选大纲");
   await expect(page.getByLabel("待采用大纲预览")).toHaveCount(0);

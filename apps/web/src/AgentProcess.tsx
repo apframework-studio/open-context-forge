@@ -5,7 +5,7 @@ const runStatus: Record<string, string> = { running: "运行中", waiting_permis
 export function AgentProcess({ run, seconds, connecting, onAnswer }: { run: AgentRun; seconds?: number; connecting?: boolean;
   onAnswer: (requestId: string, optionId: string) => void }) {
   return <div className={`agent-process ${run.status}`}>
-    <details open={agentActive(run)}><summary><span className="agent-process-indicator" />
+    <details open={agentActive(run) || run.status === "completed" || run.status === "failed"}><summary><span className="agent-process-indicator" />
       <span>{run.tools.length ? `${run.tools.length} 项操作` : "执行过程"}</span><span className="agent-process-summary">{runStatus[run.status]}{seconds !== undefined ? ` · ${seconds} 秒` : ""}</span>
     </summary><div className="agent-process-content">
       {run.activity && <p className="agent-process-activity">{connecting ? "连接中，任务在本机继续运行…" : run.activity}</p>}

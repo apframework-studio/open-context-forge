@@ -38,6 +38,14 @@ describe("knowledge Markdown reading", () => {
     expect(html).not.toContain(' open=""');
   });
 
+  it("renders safe remote images and keeps unsafe or relative image sources inert", () => {
+    const html = render("![图示](https://example.com/image.png) ![危险](javascript:alert%281%29) ![本地](assets/image.png)");
+    expect(html).toContain('<img src="https://example.com/image.png" alt="图示" loading="lazy"');
+    expect(html).toContain("图片未加载");
+    expect(html).not.toContain('src="javascript:');
+    expect(html).not.toContain('src="assets/image.png"');
+  });
+
   it("keeps unsafe URLs and raw HTML inert while allowing external links", () => {
     const html = render('[危险](javascript:alert%281%29) <script>alert(1)</script>\n\n[原文](https://example.com)');
     expect(html).not.toContain("javascript:");

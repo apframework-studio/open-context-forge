@@ -14,9 +14,16 @@ interface Props { sourceRef: SourceRef | null; articleId: string | null; vaults:
   onArticle: (id: string, publicationId?: string | null) => void; onOpenSources: () => void;
   onOpenPublish: (item: ArticleListItem) => void; onArticlesRemoved: (ids: string[]) => void }
 
+function articleTitleFromMarkdown(markdown: string): string | null {
+  const withoutCodeBlocks = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "");
+  const heading = withoutCodeBlocks.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]?.trim();
+  return heading || null;
+}
+
 function ArticleMarkdown({ content, articleId }: { content: string; articleId: string }) {
-  return <div className="markdown-body"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: ({ src, ...props }) =>
-    <img {...props} src={src?.startsWith("assets/") ? `/api/v1/articles/${articleId}/asset?path=${encodeURIComponent(src)}` : src} /> }}>{content}</Markdown></div>;
+  return <div className="markdown-body article-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+    table: ({ children }) => <div className="article-table-scroll"><table>{children}</table></div>,
+    img: ({ src, ...props }) => <img {...props} src={src?.startsWith("assets/") ? `/api/v1/articles/${articleId}/asset?path=${encodeURIComponent(src)}` : src} /> }}>{content}</Markdown></div>;
 }
 
 export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onOpenPublish, onArticlesRemoved }: Props) {
@@ -27,7 +34,8 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
   const [date, setDate] = useState("");
   const [draft, setDraft] = useState("");
   const [workspaceView, setWorkspaceView] = useState<"list" | "writing">(() => {
-    try { return articleId && sessionStorage.getItem("ocf-article-page") === "writing" ? "writing" : "list"; } catch { return "list"; }
+    if (articleId) return "writing";
+    try { return sessionStorage.getItem("ocf-article-page") === "writing" ? "writing" : "list"; } catch { return "list"; }
   });
   const [mode, setMode] = useState<"write" | "read">("write");
   const [mobilePane, setMobilePane] = useState<"chat" | "document">("chat");
@@ -236,14 +244,14 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
       <button className="article-back" type="button" aria-label="返回文章列表" title="返回文章列表" disabled={busy} onClick={() => void backToList()}><WorkspaceIcon name="chevronLeft" size={18} /><span>文章列表</span></button>
       <input className="article-inline-title" aria-label="文章标题" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="未命名文章" />
       <span className={`article-stage ${article.status === "final" ? "complete" : "writing"}`}>{article.status === "final" ? "已定稿" : "草稿"}</span>
+      <div className="article-save-line"><span role="status">{message || (busy ? "正在保存…" : dirty ? "有未保存的修改" : `已自动保存 · v${article.revision}`)}</span>
+        <span>{draft.replace(/\s/g, "").length.toLocaleString()} 字</span></div>
       <div className="article-mode-switch"><button type="button" aria-pressed={mode === "write"} onClick={() => { setMode("write"); setFocusChat(false); }}>协作写作</button>
         <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>阅读文章</button></div>
       <div className="article-studio-actions"><button className="text-button" type="button" onClick={() => setMetadataOpen(true)}>发布信息</button>
         <button className="secondary-button" disabled={busy || !dirty} onClick={() => void save()}>保存草稿</button>
         <button className="primary-button" disabled={busy || dirty || article.status === "final"} onClick={() => void finalize()}>定稿</button></div>
     </div>
-    <div className="article-save-line"><span role="status">{message || (busy ? "正在保存…" : dirty ? "有未保存的修改" : `已自动保存 · v${article.revision}`)}</span>
-      <span>{draft.replace(/\s/g, "").length.toLocaleString()} 字</span></div>
     <div className="article-context-bar"><button type="button" className="secondary-button" disabled={!writing.context || writing.busy} onClick={() => setMaterialsOpen(true)} aria-label="选择创作资料">选择创作资料</button>
       <span title={writing.context?.vaultIds.join("、")}>{writing.context ? `${writing.context.vaultIds.length} 个知识库 · ${writing.context.materials.length} 篇资料` : "正在恢复创作资料…"}</span>
       <label className="article-writer-skill" title={writing.skill?.path ?? "本机未找到 tech-article-writer，将使用普通写作对话"}><input type="checkbox" aria-label="请求使用文章写作技能" checked={!!writing.context?.skillEnabled && !!writing.skill?.available}
@@ -264,13 +272,15 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
           <div className="article-outline-toolbar"><span aria-label="大纲状态">{outlineDraft !== writing.outline?.markdown ? "待保存的旧草稿" : writing.outline?.approved ? `已确认 · v${writing.outline.revision}` : "待审阅"}</span>
             {outlineDraft !== writing.outline?.markdown && <button className="text-button" disabled={writing.busy || !writing.outline} onClick={() => void saveWritingOutline()}>保存旧草稿</button>}
             <button className="text-button" onClick={() => prepare("请根据当前大纲和我们的讨论修改大纲，列出主线、章节与对应证据，并将可审阅的新版本写入本轮 outline.md。")}>讨论修改大纲</button>
-            <button className="secondary-button" disabled={writing.busy || !writing.outline || !outlineDraft.trim() || (writing.outline.approved && outlineDraft === writing.outline.markdown)} onClick={() => void saveWritingOutline(true)}>确认大纲</button></div>
+            <button className="secondary-button" disabled={writing.busy || !writing.outline || !outlineDraft.trim() || (writing.outline.approved && outlineDraft === writing.outline.markdown)} onClick={async () => {
+              const approved = await saveWritingOutline(true);
+              if (approved) prepare("请按本轮已确认的大纲起草文章，结合所选资料，以 [S编号] 标注可回查的依据。将可审阅正文写入本轮 article.md，暂不发布。");
+            }}>确认大纲</button></div>
           {pendingOutline && <section className={`article-proposal-inline${outlineDraft ? "" : " fill-panel"}`} aria-label="待采用大纲预览">
             <header><strong>智能体提纲 · 待采用</strong><button className="text-button" onClick={() => setOutlineProposal(pendingOutline.markdown)}>审阅大纲草案</button>
               <button className="text-button" onClick={() => setDismissed((value) => [...value, pendingOutline.sha256])}>忽略</button></header>
             <ArticleMarkdown content={pendingOutline.markdown} articleId={article.id} /></section>}
           {outlineDraft && <section className="article-document-preview" aria-label="文章大纲"><ArticleMarkdown content={outlineDraft} articleId={article.id} /></section>}
-          <div className="article-outline-foot"><small>采用新大纲或更换创作资料后，需要重新确认。</small><button className="primary-button" disabled={!writing.outline?.approved || outlineDraft !== writing.outline.markdown} onClick={() => prepare("请按本轮已确认的大纲起草文章，结合所选资料，以 [S编号] 标注可回查的依据。将可审阅正文写入本轮 article.md，暂不发布。")}>按大纲起草正文</button></div>
         </div>
         <div className="article-right-panel" hidden={rightTab !== "body"}>
           {pendingBody && <section className={`article-proposal-inline${draft ? "" : " fill-panel"}`} aria-label="待采用正文预览">
@@ -309,7 +319,8 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
     {proposal !== null && <div className="modal-backdrop article-dialog-backdrop"><section className="confirm-modal article-proposal-dialog" role="dialog" aria-modal="true" aria-label="采用智能体正文">
       <h2>采用智能体正文</h2><p>确认后将用这条回复替换当前正文。后续修改可继续在右侧讨论。</p><div className="article-proposal-preview"><ArticleMarkdown content={proposal} articleId={article.id} /></div>
       <div className="action-row"><button className="secondary-button" onClick={() => setProposal(null)}>取消</button><button className="primary-button" onClick={() => {
-        setDraft(proposal); if (proposalHash) setDismissed((v) => [...v, proposalHash]); setProposal(null); setProposalHash(null); setMode("write"); setRightTab("body"); setFocusChat(false); setMobilePane("document");
+        const heading = articleTitleFromMarkdown(proposal);
+        setDraft(proposal); if (heading && (!title.trim() || title.trim() === "未命名文章")) setTitle(heading); if (proposalHash) setDismissed((v) => [...v, proposalHash]); setProposal(null); setProposalHash(null); setMode("write"); setRightTab("body"); setFocusChat(false); setMobilePane("document");
       }}>替换正文</button></div></section></div>}
   </div>;
 }

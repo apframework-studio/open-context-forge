@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Root } from "mdast";
@@ -17,6 +17,11 @@ const propertyLabels: Record<string, string> = { type: "类型", topic: "主题"
   sources: "来源", related: "相关笔记", last_reviewed: "最近复核", tags: "标签", aliases: "别名" };
 type ReadingNode = { type: string; value?: string; children?: ReadingNode[]; depth?: number; url?: string };
 function text(node: ReadingNode): string { return node.value ?? node.children?.map(text).join("") ?? ""; }
+function KnowledgeImage({ src, alt }: { src?: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || !/^https?:\/\//i.test(src) || failed) return <span className="knowledge-image-placeholder">图片未加载{alt ? `：${alt}` : ""}</span>;
+  return <img src={src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+}
 
 // Transform parsed text nodes only: code blocks, inline code and existing links stay intact.
 function remarkKnowledgeLinks({ title }: { title: string }) {
@@ -66,7 +71,7 @@ export function KnowledgeMarkdown({ item, onNavigate, onAnchor }: Props) {
     </details>}
     <div className="markdown-body knowledge-markdown"><Markdown remarkPlugins={[remarkGfm, [remarkKnowledgeLinks, { title: item.title }]]} skipHtml
       components={{
-        img: ({ alt }) => <span className="knowledge-image-placeholder">图片：{alt || "无描述"}</span>,
+        img: ({ src, alt }) => <KnowledgeImage src={src} alt={alt} />,
         a: ({ href, children }) => {
           if (/^https?:\/\//i.test(href ?? "")) return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
           if (!href) return <span>{children}</span>;

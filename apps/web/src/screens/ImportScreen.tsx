@@ -5,6 +5,7 @@ import type { MaintenanceJob, MaintenanceJobsPage } from "../api";
 import type { FilingJob, FilingJobsPage } from "../api";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 import { WorkbenchSelect } from "../WorkbenchSelect";
+import { KnowledgeMarkdown } from "./KnowledgeMarkdown";
 
 interface Props { vaults: VaultList | null; onImported: (source: SourceRef) => void; onCaptureSettings: () => void }
 type View = "pending" | "recent" | "all" | "trash";
@@ -558,11 +559,15 @@ export function ImportScreen({ vaults, onImported, onCaptureSettings }: Props) {
                   <button className="text-button" aria-label={hasAnalysis ? "重新生成智能摘要" : "生成智能摘要"} disabled={busy || jobRunning}
                     onClick={() => void queueAnalysis([item])}>{jobRunning ? "生成中" : "智能摘要"}</button>
                   {item.status !== "imported" && item.status !== "processing" && <button className="text-button" disabled={busy} onClick={() => void action(item.disposition === "shelved" ? "restore" : "shelve", [item])}>{item.disposition === "shelved" ? "重新整理" : "搁置"}</button>}</>}</div></div>
-            {open && <div className="source-detail"><div className="source-detail-meta"><span>{item.originalUrl ? "抓取" : "导入"}：{date(item.capturedAt)}</span><span>知识库：{item.vaults?.length ? item.vaults.map((entry) => entry.vaultId).join("、") : "未入库"}</span><span>批次：{item.batchId.slice(0, 8)}</span></div>
-              <div className="source-detail-meta"><span>文章署名：{item.author ?? "未发现"}</span><span>原文归属：{{ self: "本人原创", third_party: "第三方文章", unknown: "待确认" }[item.authorship]}</span>
-                <span>署名依据：{item.authorEvidence?.kind ?? "无"}</span>
-                <button className="text-button" onClick={() => openMetadataEditor(item)}>修正来源信息</button></div>
-              {sourceFilings.map((filing) => <div className="source-maintenance" key={filing.id}>
+            {open && <div className="source-detail"><section className="source-detail-section" aria-label="来源信息"><div className="source-detail-meta">
+                <div><dt>{item.originalUrl ? "抓取时间" : "导入时间"}</dt><dd>{date(item.capturedAt)}</dd></div>
+                <div><dt>知识库</dt><dd>{item.vaults?.length ? item.vaults.map((entry) => entry.vaultId).join("、") : "未入库"}</dd></div>
+                <div><dt>批次</dt><dd>{item.batchId.slice(0, 8)}</dd></div>
+                <div><dt>文章署名</dt><dd>{item.author ?? "未发现"}</dd></div>
+                <div><dt>原文归属</dt><dd>{{ self: "本人原创", third_party: "第三方文章", unknown: "待确认" }[item.authorship]}</dd></div>
+                <div><dt>署名依据</dt><dd>{item.authorEvidence?.kind ?? "无"}</dd></div>
+              </div><button className="text-button" onClick={() => openMetadataEditor(item)}>修正来源信息</button></section>
+              {sourceFilings.length > 0 && <section className="source-detail-section"><h3>入库记录</h3>{sourceFilings.map((filing) => <div className="source-maintenance" key={filing.id}>
                 <strong>{filing.vaultId} · raw 入库：{{ queued: "排队中", running: "进行中", retry_wait: "等待重试", completed: "已完成",
                   needs_attention: "需要人工检查", cancelled: "已取消" }[filing.status]}</strong>
                 {filing.startedAt && filing.status === "running" && <span>开始：{date(filing.startedAt)}</span>}
@@ -570,26 +575,29 @@ export function ImportScreen({ vaults, onImported, onCaptureSettings }: Props) {
                 {filing.errorCode && <span className="inline-message error">{new ApiError(409, filing.errorCode).message}</span>}
                 {filing.status === "needs_attention" && <button className="text-button" onClick={() => void filingAction(filing.id, "inspect")}>检查并恢复</button>}
                 {["queued", "retry_wait"].includes(filing.status) && <button className="text-button" onClick={() => void filingAction(filing.id, "cancel")}>取消排队</button>}
-              </div>)}
+              </div>)}</section>}
               {(item.vaults ?? []).map((membership) => {
                 const maintenance = maintenanceJobs.find((entry) => entry.vaultId === membership.vaultId && entry.fingerprint === membership.fingerprint);
                 const vault = vaults?.vaults.find((entry) => entry.id === membership.vaultId);
                 const label = maintenance ? ({ queued: "排队中", running: `进行中 · ${maintenance.stage}`, retry_wait: "等待重试",
                   completed: "已写入", skipped: `已分析 · ${maintenance.result?.recommendation ?? "跳过"}`,
                   failed: "失败", blocked: "等待 CLI", needs_attention: "需要人工检查", cancelled: "已取消" } as Record<string, string>)[maintenance.status] : "未运行";
-                return <div className="source-maintenance" key={`${membership.vaultId}:${membership.fingerprint}`}>
-                  <strong>{membership.vaultId} · 知识维护：{label}</strong>
-                  {maintenance?.errorCode && <span className="inline-message error">{new ApiError(409, maintenance.errorCode).message}</span>}
-                  {maintenance?.nextRetryAt && <span>下次重试：{date(maintenance.nextRetryAt)}</span>}
-                  {maintenance?.result?.files.map((path) => <a key={path} href={`obsidian://open?path=${encodeURIComponent(`${vault?.path ?? ""}/${path}`)}`}>{path}</a>)}
-                  {(!maintenance || maintenance.status === "cancelled") &&
-                    <button className="text-button" onClick={() => void startMaintenance(membership.vaultId, membership.fingerprint)}>分析并编译</button>}
-                  {maintenance && ["failed", "blocked"].includes(maintenance.status) &&
-                    <button className="text-button" onClick={() => void retryMaintenance(maintenance.id)}>重试</button>}
-                  {maintenance && ["queued", "retry_wait", "blocked", "running"].includes(maintenance.status) &&
-                    maintenance.stage !== "writing" &&
-                    <button className="text-button" onClick={() => void cancelMaintenance(maintenance.id)}>取消维护</button>}
-                </div>;
+                return <section className="source-detail-section source-maintenance-section" key={`${membership.vaultId}:${membership.fingerprint}`}>
+                  <div className="source-maintenance"><strong>{membership.vaultId} · 知识维护：{label}</strong>
+                    {maintenance?.errorCode && <span className="inline-message error">{new ApiError(409, maintenance.errorCode).message}</span>}
+                    {maintenance?.nextRetryAt && <span>下次重试：{date(maintenance.nextRetryAt)}</span>}
+                    {(!maintenance || maintenance.status === "cancelled") &&
+                      <button className="text-button" onClick={() => void startMaintenance(membership.vaultId, membership.fingerprint)}>分析并编译</button>}
+                    {maintenance && ["failed", "blocked"].includes(maintenance.status) &&
+                      <button className="text-button" onClick={() => void retryMaintenance(maintenance.id)}>重试</button>}
+                    {maintenance && ["queued", "retry_wait", "blocked", "running"].includes(maintenance.status) &&
+                      maintenance.stage !== "writing" &&
+                      <button className="text-button" onClick={() => void cancelMaintenance(maintenance.id)}>取消维护</button>}
+                  </div>
+                  {!!maintenance?.result?.files.length && <ul className="source-generated-files" aria-label="生成的知识文件">{maintenance.result.files.map((path) => <li key={path}>
+                    <a href={`obsidian://open?path=${encodeURIComponent(`${vault?.path ?? ""}/${path}`)}`} title={path}>{path.split("/").at(-1)}</a><small>{path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : membership.vaultId}</small>
+                  </li>)}</ul>}
+                </section>;
               })}
               {item.warnings.length > 0 && <p className="inline-message">预检提示：{item.warnings.join("、")}</p>}
               {item.errorCode && <p className="inline-message error">处理失败：{item.errorCode}</p>}
@@ -599,7 +607,10 @@ export function ImportScreen({ vaults, onImported, onCaptureSettings }: Props) {
                   <button type="button" role="tab" aria-selected={detailPane === "original"} onClick={() => setDetailPane("original")}>资料正文</button>
                   <button type="button" role="tab" aria-selected={detailPane === "analysis"} onClick={() => setDetailPane("analysis")}>智能摘要</button>
                 </div>}
-                <section className="source-original" aria-label={`${item.title} 资料正文`}><strong>资料正文</strong><pre>{item.markdown}</pre></section>
+                <section className="source-original" aria-label={`${item.title} 资料正文`}><strong>资料正文</strong>
+                  <div className="markdown-body source-original-markdown"><KnowledgeMarkdown item={{ kind: "source", title: item.title, path: item.sourceFilename ?? item.title,
+                    markdown: item.markdown, outlinks: [], issues: [], format: "markdown" }} onNavigate={() => undefined} onAnchor={() => undefined} /></div>
+                  <details className="source-original-raw"><summary>查看原始文本</summary><pre>{item.markdown}</pre></details></section>
                 {card && <section className="analysis-card" aria-label={`${item.title} 智能摘要`}><div className="candidate-top"><strong>智能摘要</strong>
                 <span className="tag success">已分析</span></div>
                 <p>{card.summary}</p><ul>{card.mainPoints.map((point, index) => <li key={index}><strong>{point.claim}</strong><small>{point.kind === "article_statement" ? "作者陈述" : point.kind === "inference" ? "原文推断" : "未确定"}</small>

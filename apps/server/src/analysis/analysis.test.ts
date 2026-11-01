@@ -188,17 +188,17 @@ test("proposes a line-grounded card without writing into vault, then confirms it
   } finally { await context.app.close(); rmSync(context.dataDir, { recursive: true, force: true }); }
 });
 
-test("rejects changed source and invalid evidence without writing card", async () => {
+test("keeps analysis content when evidence does not match and still rejects changed source", async () => {
   const context = await fixture(async () => ({ sessionId: "analysis-2", text: JSON.stringify({
-    summary: "摘要", mainPoints: [{ claim: "不在原文", kind: "article_statement",
+    summary: "可展示的摘要", mainPoints: [{ claim: "待核对的要点", kind: "article_statement",
       evidence: [{ startLine: 999, endLine: 999, excerpt: "伪证据" }] }],
     limitations: [], recommendation: "defer", reason: "待核对",
   }) }));
   try {
     const body = { vaultId: "default", snapshot: context.snapshot, profileId: "claude-current" };
-    const invalid = await context.app.inject({ method: "POST", url: "/api/v1/sources/analysis", headers, payload: body });
-    expect(invalid.statusCode).toBe(502);
-    expect(invalid.json().error).toBe("ANALYSIS_EVIDENCE_INVALID");
+    const response = await context.app.inject({ method: "POST", url: "/api/v1/sources/analysis", headers, payload: body });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ summary: "可展示的摘要", mainPoints: [{ claim: "待核对的要点", evidence: [] }] });
     writeFileSync(join(context.vaultPath, context.snapshot), "changed");
     const changed = await context.app.inject({ method: "POST", url: "/api/v1/sources/analysis", headers, payload: body });
     expect(changed.statusCode).toBe(409);

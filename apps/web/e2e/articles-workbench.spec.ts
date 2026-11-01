@@ -35,8 +35,10 @@ test("blank articles are created immediately and remain separate across switchin
   await expect(page.locator(".article-list-item")).toHaveCount(Math.min(12, startingCount + 2));
   await page.getByRole("button", { name: firstTitle, exact: true }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("先写内容，标题以后再定。");
+  const articleId = await page.evaluate(() => localStorage.getItem("ocf-last-article"));
+  await expect(page).toHaveURL(new RegExp(`#articles/${articleId}`));
   await page.reload();
-  await page.getByRole("button", { name: /文章工作台/ }).click();
+  await expect(page.getByRole("button", { name: "文章工作台", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("先写内容，标题以后再定。");
 });
 
@@ -131,6 +133,7 @@ test("chat saves current text before sending and a reviewed reply can become the
   await expect(confirm).toContainText("这是经过讨论的新正文");
   await confirm.getByRole("button", { name: "替换正文" }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("这是经过讨论的新正文。");
+  await expect(page.getByLabel("文章标题")).toHaveValue("");
   await page.getByRole("button", { name: "用作大纲" }).click();
   await page.getByRole("dialog", { name: "采用大纲草案" }).getByRole("button", { name: "采用大纲" }).click();
   await expect(page.getByRole("tab", { name: "大纲", exact: true })).toHaveAttribute("aria-selected", "true");

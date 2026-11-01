@@ -13,8 +13,8 @@ import { WorkspaceIcon } from "./WorkspaceIcon";
 const areas: { name: WorkspaceArea; number: string; icon: "sources" | "vault" | "article" | "publish"; description: string }[] = [
   { name: "资料与分析", number: "01", icon: "sources", description: "导入资料、检查来源，形成可回查的分析。" },
   { name: "知识库", number: "02", icon: "vault", description: "浏览来源与原有笔记，搜索内容并探索真实链接。" },
-  { name: "文章工作台", number: "03", icon: "article", description: "围绕证据与智能体讨论，起草、修订并定稿文章。" },
-  { name: "预览与发布", number: "04", icon: "publish", description: "本地检查渠道效果，再确认发布。" },
+  { name: "文章工作台", number: "02", icon: "article", description: "围绕证据与智能体讨论，起草、修订并定稿文章。" },
+  { name: "预览与发布", number: "03", icon: "publish", description: "本地检查渠道效果，再确认发布。" }
 ];
 
 function layoutPreference(key: string): boolean {
@@ -30,13 +30,20 @@ function localDate() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+function readRoute() {
+  const [route, id] = window.location.hash.slice(1).split("/");
+  const routeAreas: Record<string, WorkspaceArea> = { sources: "资料与分析", articles: "文章工作台", publish: "预览与发布", knowledge: "知识库" };
+  return { area: routeAreas[route] ?? "资料与分析", articleId: route === "articles" && id ? decodeURIComponent(id) : null };
+}
+
 export function App() {
-  const [area, setArea] = useState<WorkspaceArea | "设置">("资料与分析");
+  const [initialRoute] = useState(readRoute);
+  const [area, setArea] = useState<WorkspaceArea | "设置">(initialRoute.area);
   const [settingsSection, setSettingsSection] = useState<"capture" | "vaults" | null>(null);
   const [vaults, setVaults] = useState<VaultList | null>(null);
   const [branding, setBranding] = useState<BrandingStatus>({ customized: false, revision: null });
   const [sourceRef, setSourceRef] = useState<SourceRef | null>(() => { try { return JSON.parse(localStorage.getItem("ocf-last-source") ?? "null"); } catch { return null; } });
-  const [articleId, setArticleId] = useState<string | null>(() => localStorage.getItem("ocf-last-article"));
+  const [articleId, setArticleId] = useState<string | null>(() => initialRoute.articleId ?? localStorage.getItem("ocf-last-article"));
   const [publicationId, setPublicationId] = useState<string | null>(() => localStorage.getItem("ocf-last-publication"));
   const [loadError, setLoadError] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(() => layoutPreference("ocf-nav-collapsed"));
@@ -47,6 +54,37 @@ export function App() {
   const [reminderVisible, setReminderVisible] = useState(false);
   const [attentionMessage, setAttentionMessage] = useState("");
   const current = areas.find((item) => item.name === area) ?? { name: "设置", number: "", description: "管理知识库连接和本机工作区。" };
+
+  function navigate(area: WorkspaceArea | "设置") {
+    setArea(area);
+    const routes: Partial<Record<WorkspaceArea, string>> = { "资料与分析": "sources", "文章工作台": "articles", "预览与发布": "publish", "知识库": "knowledge" };
+    const route = area === "设置" ? "settings" : routes[area] ?? "settings";
+    const hash = area === "文章工作台" && articleId ? `#articles/${encodeURIComponent(articleId)}` : `#${route}`;
+    if (window.location.hash !== hash) window.history.pushState(null, "", hash);
+  }
+
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = readRoute();
+      setArea(route.area);
+      if (route.articleId) {
+        setArticleId(route.articleId);
+        localStorage.setItem("ocf-last-article", route.articleId);
+      }
+    };
+    window.addEventListener("popstate", syncRoute);
+    window.addEventListener("hashchange", syncRoute);
+    return () => {
+      window.removeEventListener("popstate", syncRoute);
+      window.removeEventListener("hashchange", syncRoute);
+    };
+  }, []);
+
+  useEffect(() => {
+    const route = area === "文章工作台" ? "articles" : area === "预览与发布" ? "publish" : area === "知识库" ? "knowledge" : area === "资料与分析" ? "sources" : "settings";
+    const hash = area === "文章工作台" && articleId ? `#articles/${encodeURIComponent(articleId)}` : `#${route}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
+  }, [area, articleId]);
 
   async function refreshVaults() {
     try { setVaults(await api<VaultList>("/vaults")); setLoadError(""); }
@@ -107,7 +145,7 @@ export function App() {
       } catch { /* Navigation still works without saved view state. */ }
     }
     setAttentionOpen(false);
-    setArea("资料与分析");
+    navigate("资料与分析");
   }
 
   async function actOnAttention(item: AttentionItem,
@@ -155,7 +193,7 @@ export function App() {
 
   function openSettings(section: "capture" | "vaults" | null) {
     setSettingsSection(section);
-    setArea("设置");
+    navigate("设置");
   }
 
   return (
@@ -173,7 +211,7 @@ export function App() {
         <nav id="workflow-nav" aria-label="工作流程">
           {areas.filter((item) => item.name !== "知识库").map((item) => (
             <button key={item.name} className={`nav-item ${area === item.name ? "active" : ""}`} type="button"
-              onClick={() => setArea(item.name)} aria-label={item.name} title={item.name}
+              onClick={() => navigate(item.name)} aria-label={item.name} title={item.name}
               aria-current={area === item.name ? "page" : undefined}>
               <span className="nav-icon"><WorkspaceIcon name={item.icon} /></span>
               <span className="nav-text">{item.name}</span><span className="nav-number">{item.number}</span>
@@ -183,7 +221,7 @@ export function App() {
         </nav>
         <p className="sidebar-label knowledge-nav-label">工作区</p>
         <button className={`nav-item knowledge-settings-nav ${area === "知识库" ? "active" : ""}`} type="button"
-          onClick={() => setArea("知识库")} aria-label="知识库" title="知识库" aria-current={area === "知识库" ? "page" : undefined}>
+          onClick={() => navigate("知识库")} aria-label="知识库" title="知识库" aria-current={area === "知识库" ? "page" : undefined}>
           <span className="nav-icon"><WorkspaceIcon name="vault" /></span><span className="nav-text">知识库</span>
         </button>
         <button className={`nav-item knowledge-settings-nav ${area === "设置" ? "active" : ""}`} type="button"
@@ -216,10 +254,10 @@ export function App() {
           {area === "设置" && <VaultSettingsScreen vaults={vaults} refresh={refreshVaults} focusSection={settingsSection}
             branding={branding} iconUrl={iconUrl} onBrandingChange={setBranding} />}
           {area === "文章工作台" && <ArticleScreen sourceRef={sourceRef} articleId={articleId} vaults={vaults} onArticle={selectedArticle}
-            onOpenSources={() => setArea("资料与分析")} onArticlesRemoved={articlesRemoved}
-            onOpenPublish={(item) => { selectedArticle(item.id, item.publicationId); setArea("预览与发布"); }} />}
+            onOpenSources={() => navigate("资料与分析")} onArticlesRemoved={articlesRemoved}
+            onOpenPublish={(item) => { selectedArticle(item.id, item.publicationId); navigate("预览与发布"); }} />}
           {area === "预览与发布" && <PublishScreen articleId={articleId} publicationId={publicationId} onPublication={selectedPublication}
-            onOpenArticles={() => setArea("文章工作台")} />}
+            onOpenArticles={() => navigate("文章工作台")} />}
         </div>
       </main>
     </div>

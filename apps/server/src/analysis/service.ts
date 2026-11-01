@@ -63,15 +63,11 @@ function parseCard(raw: string, lines: string[]): Pick<SourceAnalysis, "summary"
   }
   for (const point of card.mainPoints) {
     if (!point || !text(point.claim, 1000) || !kinds.has(point.kind) || !Array.isArray(point.evidence) ||
-      point.evidence.length < 1 || point.evidence.length > 4) throw new AnalysisError("ANALYSIS_RESPONSE_INVALID", 502);
-    for (const item of point.evidence) {
-      if (!item || !Number.isInteger(item.startLine) || !Number.isInteger(item.endLine) ||
-        item.startLine < 1 || item.endLine < item.startLine || item.endLine > lines.length ||
-        item.endLine - item.startLine > 8 || !text(item.excerpt, 300) ||
-        !lines.slice(item.startLine - 1, item.endLine).join("\n").includes(item.excerpt)) {
-        throw new AnalysisError("ANALYSIS_EVIDENCE_INVALID", 502);
-      }
-    }
+      point.evidence.length > 4) throw new AnalysisError("ANALYSIS_RESPONSE_INVALID", 502);
+    point.evidence = (point.evidence as Evidence[]).filter((item) => item && Number.isInteger(item.startLine) && Number.isInteger(item.endLine) &&
+      item.startLine >= 1 && item.endLine >= item.startLine && item.endLine <= lines.length &&
+      item.endLine - item.startLine <= 8 && text(item.excerpt, 300) &&
+      lines.slice(item.startLine - 1, item.endLine).join("\n").includes(item.excerpt));
   }
   return card as Pick<SourceAnalysis, "summary" | "mainPoints" | "limitations" | "recommendation" | "reason">;
 }
