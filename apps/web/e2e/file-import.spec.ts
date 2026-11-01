@@ -11,6 +11,7 @@ test("import dialog accepts multiple local files and keeps source filenames visi
     { name: "report.html", mimeType: "text/html", buffer: Buffer.from("<title>离线报告</title><main><p>报告内容</p></main>") },
   ]);
   await expect(page.getByRole("dialog", { name: "导入资料" })).toHaveCount(0);
+  await page.getByRole("tab", { name: /全部资料/ }).click();
   await expect(page.getByText("本地研究")).toBeVisible();
   await expect(page.getByText("离线报告")).toBeVisible();
   await expect(page.getByText("本地文件 · research.md")).toBeVisible();

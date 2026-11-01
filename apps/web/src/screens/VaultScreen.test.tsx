@@ -5,7 +5,7 @@ import { VaultScreen } from "./VaultScreen";
 
 test("knowledge workspace separates overview, browse, graph and connection settings", () => {
   const html = renderToStaticMarkup(createElement(VaultScreen, {
-    vaults: { defaultVaultId: "default", vaults: [{ id: "default", path: "/tmp/vault", kind: "built-in", isDefault: true }] },
+    vaults: { defaultVaultId: "default", vaults: [{ id: "default", path: "/tmp/vault", kind: "built-in", isDefault: true, autoMaintain: false }] },
     onSettings: () => undefined,
   }));
   expect(html).toContain("刚入库来源");

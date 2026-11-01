@@ -8,6 +8,43 @@ function handle(error: unknown) {
 }
 
 export function registerAnalysisRoutes(app: FastifyInstance, service: AnalysisService, jobs: AnalysisJobs): void {
+  app.get("/api/v1/maintenance/lane", async () => jobs.laneState());
+  app.post("/api/v1/maintenance/lane/resume", async (_request, reply) => {
+    try { return jobs.resumeLane(); }
+    catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
+  app.get<{ Querystring: { vaultId?: string } }>("/api/v1/maintenance/jobs", async (request) => ({ jobs: jobs.listMaintenance(request.query.vaultId) }));
+  app.post<{ Body: { vaultId?: unknown; fingerprint?: unknown } }>("/api/v1/maintenance/jobs", async (request, reply) => {
+    try {
+      if (typeof request.body?.vaultId !== "string" || typeof request.body?.fingerprint !== "string") {
+        throw new AnalysisError("INVALID_MAINTENANCE_JOB", 422);
+      }
+      return reply.code(202).send({ job: jobs.enqueueMaintenance(request.body.vaultId, request.body.fingerprint) });
+    } catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
+  app.post<{ Params: { id: string } }>("/api/v1/maintenance/jobs/:id/retry", async (request, reply) => {
+    try { return reply.code(202).send({ job: jobs.retryMaintenance(request.params.id) }); }
+    catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
+  app.post<{ Params: { id: string } }>("/api/v1/maintenance/jobs/:id/cancel", async (request, reply) => {
+    try { return { job: jobs.cancelMaintenance(request.params.id) }; }
+    catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
+  app.post<{ Params: { id: string }; Body: { confirmed?: unknown } }>(
+    "/api/v1/maintenance/jobs/:id/metadata-sync/resolve", async (request, reply) => {
+      try { return { job: await jobs.runMetadataCorrection(() =>
+        jobs.resolveMetadataSync(request.params.id, request.body?.confirmed)) }; }
+      catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+    });
+  app.post<{ Params: { id: string }; Body: { decision?: unknown } }>(
+    "/api/v1/maintenance/jobs/:id/resolve", async (request, reply) => {
+      try { return { job: jobs.resolveAskUser(request.params.id, request.body?.decision) }; }
+      catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+    });
+  app.post<{ Params: { id: string } }>("/api/v1/maintenance/jobs/:id/inspect", async (request, reply) => {
+    try { return { job: await jobs.inspectMaintenance(request.params.id) }; }
+    catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
   app.get("/api/v1/analysis/jobs", async () => ({ jobs: jobs.list() }));
   app.post<{ Body: { items?: unknown } }>("/api/v1/analysis/jobs", async (request, reply) => {
     try { return reply.code(202).send({ jobs: jobs.enqueue(request.body?.items) }); }
@@ -22,7 +59,7 @@ export function registerAnalysisRoutes(app: FastifyInstance, service: AnalysisSe
   });
   app.post<{ Params: { batchId: string; captureId: string }; Body: { profileId?: unknown } }>(
     "/api/v1/imports/:batchId/items/:captureId/analysis", async (request, reply) => {
-      try { return reply.code(201).send(await service.proposeCapture(request.params.batchId, request.params.captureId, request.body?.profileId)); }
+      try { return reply.code(201).send(await jobs.runExclusive(() => service.proposeCapture(request.params.batchId, request.params.captureId, request.body?.profileId))); }
       catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
     });
   app.post<{ Params: { batchId: string; captureId: string }; Body: { expectedFingerprint?: unknown } }>(
@@ -38,7 +75,7 @@ export function registerAnalysisRoutes(app: FastifyInstance, service: AnalysisSe
     } catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
   });
   app.post<{ Body: { vaultId?: unknown; snapshot?: unknown; profileId?: unknown } }>("/api/v1/sources/analysis", async (request, reply) => {
-    try { return reply.code(201).send(await service.propose(request.body?.vaultId, request.body?.snapshot, request.body?.profileId)); }
+    try { return reply.code(201).send(await jobs.runExclusive(() => service.propose(request.body?.vaultId, request.body?.snapshot, request.body?.profileId))); }
     catch (error) { const result = handle(error); if (result) return reply.code(result.status).send(result.body); throw error; }
   });
   app.post<{ Body: { vaultId?: unknown; snapshot?: unknown; expectedFingerprint?: unknown } }>("/api/v1/sources/analysis/confirm", async (request, reply) => {

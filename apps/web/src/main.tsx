@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 import "./theme.css";
+import "./writing-workspace.css";
+import "./appearance.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

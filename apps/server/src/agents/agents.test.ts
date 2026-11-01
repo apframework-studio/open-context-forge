@@ -72,6 +72,21 @@ test("a new blank article can discuss a topic before any source is attached", as
   } finally { await context.app.close(); rmSync(context.dataDir, { recursive: true, force: true }); }
 });
 
+test("restoring an article restores access to its existing conversation", async () => {
+  const context = await setup(async () => ({ text: "保留的写作讨论", sessionId: "preserved-session" }));
+  try {
+    await context.app.inject({ method: "POST", url: `/api/v1/articles/${context.articleId}/agent/messages`,
+      headers: { "x-ocf-client": "1" }, payload: { profileId: "claude-current", content: "讨论这篇文章" } });
+    const action = (name: string) => context.app.inject({ method: "POST", url: "/api/v1/articles/actions", headers: { "x-ocf-client": "1" },
+      payload: { action: name, items: [{ id: context.articleId, expectedRevision: 0 }] } });
+    expect((await action("trash")).statusCode).toBe(200);
+    expect((await context.app.inject({ method: "GET", url: `/api/v1/articles/${context.articleId}/agent?profileId=claude-current` })).statusCode).toBe(409);
+    expect((await action("restore")).statusCode).toBe(200);
+    const history = (await context.app.inject({ method: "GET", url: `/api/v1/articles/${context.articleId}/agent?profileId=claude-current` })).json();
+    expect(history.messages.map((message: { content: string }) => message.content)).toEqual(["讨论这篇文章", "保留的写作讨论"]);
+  } finally { await context.app.close(); rmSync(context.dataDir, { recursive: true, force: true }); }
+});
+
 test("rejects unavailable profiles and invalid messages before invoking CLI", async () => {
   let calls = 0;
   const context = await setup(async () => { calls += 1; return { text: "ok", sessionId: "x" }; });

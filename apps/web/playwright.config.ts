@@ -25,6 +25,7 @@ process.env.OCF_E2E_WEB_PORT = String(webPort);
 
 export default defineConfig({
   testDir: "./e2e",
+  workers: 1,
   use: { baseURL: `http://127.0.0.1:${webPort}`, browserName: "chromium", channel: "chrome" },
   webServer: [
     {

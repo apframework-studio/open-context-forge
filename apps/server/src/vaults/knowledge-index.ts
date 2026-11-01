@@ -1,8 +1,9 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { accessSync, constants, lstatSync, readFileSync, readdirSync, realpathSync, watch, type FSWatcher } from "node:fs";
+import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { VaultRegistry } from "./registry.js";
+import { documentFormat, documentText, type DocumentFormat } from "./document-format.js";
 
 type Kind = "source" | "note";
 type LinkType = "wikilink" | "markdown" | "source_metadata";
@@ -10,6 +11,7 @@ export interface KnowledgeItem {
   vaultId: string; path: string; kind: Kind; title: string; body: string; modifiedAt: string;
   importedAt: string | null; fingerprint: string | null; originalUrl: string | null;
   analysisStatus: string | null; folder: string; snippet?: string;
+  format: DocumentFormat; sizeBytes: number; previewLimited: boolean;
 }
 type KnowledgeSummary = Omit<KnowledgeItem, "body">;
 export interface KnowledgeLink { from: string; to: string; type: LinkType; line: number; target: string }
@@ -18,6 +20,7 @@ type Profile = { paths: { wiki: string; sources: string; index?: string; log?: s
 type Manifest = { sources?: Record<string, { snapshot: string; imported_at?: string; authorship?: string; author?: string | null; origins?: { url?: string }[] }> };
 const maxFileBytes = 2 * 1024 * 1024;
 const maxNodes = 10_000;
+const excludedDirectory = (name: string) => name.startsWith(".") || /^_legacy(?:-|$)/i.test(name);
 
 export class KnowledgeError extends Error {
   constructor(readonly code: "VAULT_NOT_FOUND" | "KNOWLEDGE_ITEM_NOT_FOUND" | "KNOWLEDGE_ITEM_CHANGED" | "INVALID_KNOWLEDGE_PATH" | "INVALID_KNOWLEDGE_QUERY", readonly status: number) { super(code); }
@@ -59,7 +62,7 @@ function cleanLinkText(body: string): string {
 }
 
 function parsedLinks(item: KnowledgeItem): { target: string; type: LinkType; line: number }[] {
-  if (item.kind !== "note") return [];
+  if (item.kind !== "note" || !["markdown", "mdx"].includes(item.format)) return [];
   const body = cleanLinkText(item.body);
   const lines = body.split("\n");
   const links: { target: string; type: LinkType; line: number }[] = [];
@@ -99,9 +102,14 @@ export class KnowledgeIndex {
         vault_id TEXT PRIMARY KEY, indexed_at TEXT NOT NULL, errors_json TEXT NOT NULL,
         index_markdown TEXT
       );
+      CREATE TABLE IF NOT EXISTS knowledge_directories (
+        vault_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(vault_id,path)
+      );
       CREATE INDEX IF NOT EXISTS knowledge_items_kind ON knowledge_items(vault_id,kind,modified_at);
       CREATE INDEX IF NOT EXISTS knowledge_links_to ON knowledge_links(vault_id,to_path);
     `);
+    const columns = db.prepare("PRAGMA table_info(knowledge_items)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "size_bytes")) db.exec("ALTER TABLE knowledge_items ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0");
   }
 
   private vault(id: string) {
@@ -112,9 +120,11 @@ export class KnowledgeIndex {
 
   private rows(vaultId?: string): KnowledgeSummary[] {
     const sql = `SELECT vault_id AS vaultId,path,kind,title,modified_at AS modifiedAt,
-      imported_at AS importedAt,fingerprint,original_url AS originalUrl,analysis_status AS analysisStatus,folder
+      imported_at AS importedAt,fingerprint,original_url AS originalUrl,analysis_status AS analysisStatus,folder,size_bytes AS sizeBytes
       FROM knowledge_items ${vaultId ? "WHERE vault_id = ?" : ""}`;
-    return (vaultId ? this.db.prepare(sql).all(vaultId) : this.db.prepare(sql).all()) as KnowledgeSummary[];
+    const rows = (vaultId ? this.db.prepare(sql).all(vaultId) : this.db.prepare(sql).all()) as KnowledgeSummary[];
+    return rows.map((row) => ({ ...row, format: documentFormat(row.path) ?? "markdown",
+      previewLimited: documentFormat(row.path) !== "pdf" && row.sizeBytes > maxFileBytes }));
   }
 
   private bodyFor(vaultId: string, path: string): string {
@@ -133,13 +143,20 @@ export class KnowledgeIndex {
     const excluded = new Set([profile.paths.index, profile.paths.log].filter(Boolean).map((value) => safeRelative(value!)));
     const errors: string[] = [];
     const items: KnowledgeItem[] = [];
+    const directories = new Set<string>([""]);
+    const seen = new Set<string>();
     const add = (path: string, kind: Kind, importedAt: string | null, fingerprint: string | null, originalUrl: string | null) => {
+      if (seen.has(path)) return;
+      const format = documentFormat(path);
+      if (!format) return;
       const safe = safeFile(root, path);
       if (!safe) { errors.push(`无法读取：${path}`); return; }
       const stat = lstatSync(safe);
-      if (stat.size > maxFileBytes) { errors.push(`文件超过 2 MiB：${path}`); return; }
-      const body = readFileSync(safe, "utf8");
-      if (kind === "source" && fingerprint && createHash("sha256").update(body).digest("hex") !== fingerprint) {
+      const previewLimited = format !== "pdf" && stat.size > maxFileBytes;
+      if (previewLimited) errors.push(`正文超过 2 MiB，仅索引文件信息：${path}`);
+      const raw = format === "pdf" || previewLimited ? "" : readFileSync(safe, "utf8");
+      const body = documentText(path, raw);
+      if (kind === "source" && fingerprint && !previewLimited && createHash("sha256").update(raw).digest("hex") !== fingerprint) {
         errors.push(`来源指纹不匹配：${path}`);
       }
       const row = kind === "source" ? this.db.prepare("SELECT status FROM source_analyses WHERE vault_id = ? AND fingerprint = ?")
@@ -149,7 +166,8 @@ export class KnowledgeIndex {
         WHERE m.vault_id = ? AND m.fingerprint = ? LIMIT 1`)
         .get(vaultId, fingerprint) as { payload_json: string } | undefined : undefined;
       const capture = imported ? JSON.parse(imported.payload_json) as { title?: string; originalUrl?: string } : null;
-      items.push({ vaultId, path, kind, title: capture?.title || firstHeading(body, path), body,
+      seen.add(path);
+      items.push({ vaultId, path, kind, title: capture?.title || firstHeading(body, path), body, format, sizeBytes: stat.size, previewLimited,
         modifiedAt: stat.mtime.toISOString(), importedAt, fingerprint, originalUrl: capture?.originalUrl || originalUrl,
         analysisStatus: row?.status ?? null, folder: dirname(path) === "." ? "" : dirname(path).split(sep).join("/") });
     };
@@ -160,6 +178,7 @@ export class KnowledgeIndex {
         if (!/^[a-f\d]{64}$/.test(fingerprint) || !path || !path.startsWith(`${sourcesDir}/`) || extname(path).toLowerCase() !== ".md") {
           errors.push(`无效来源记录：${fingerprint}`); continue;
         }
+        if (path.split("/").slice(0, -1).some(excludedDirectory)) continue;
         add(path, "source", source.imported_at ?? null, fingerprint, source.origins?.[0]?.url ?? null);
       }
     } catch { errors.push("来源清单无法读取"); }
@@ -170,21 +189,21 @@ export class KnowledgeIndex {
           (rel !== "." && rel.split("/").some((segment, index, all) => lstatSync(resolve(root, ...all.slice(0, index + 1))).isSymbolicLink()))) {
           errors.push(`目录越界或符号链接：${rel}`); return;
         }
+        directories.add(rel === "." ? "" : rel);
         for (const entry of readdirSync(path, { withFileTypes: true })) {
           if (items.length >= maxNodes) { errors.push("索引达到 10000 个文件上限"); return; }
-          if (entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
+          if (entry.isSymbolicLink() || excludedDirectory(entry.name)) continue;
           const child = join(rel, entry.name).split(sep).join("/");
-          if (child === sourcesDir || child.startsWith(`${sourcesDir}/`) || child === ".ocf" || child.startsWith(".ocf/")) continue;
           if (entry.isDirectory()) visit(child);
-          else if (entry.isFile() && extname(entry.name).toLowerCase() === ".md" && !excluded.has(child)) add(child, "note", null, null, null);
+          else if (entry.isFile() && documentFormat(entry.name) && !excluded.has(child)) add(child, "note", null, null, null);
         }
       } catch { errors.push(`目录无法读取：${rel}`); }
     };
-    visit(wikiDir);
+    visit(".");
     const lookup = new Map(items.map((item) => [item.path.toLowerCase(), item]));
     const basenameIndex = new Map<string, KnowledgeItem[]>();
     for (const item of items) {
-      const key = basename(item.path, ".md").toLowerCase();
+      const key = basename(item.path, extname(item.path)).toLowerCase();
       basenameIndex.set(key, [...(basenameIndex.get(key) ?? []), item]);
     }
     const links: (KnowledgeLink & { issue: string | null })[] = [];
@@ -194,9 +213,10 @@ export class KnowledgeIndex {
       else {
         const raw = link.target.replace(/\\/g, "/");
         const relativeTarget = safeRelative(join(dirname(item.path), raw));
-        const exactTargets = [relativeTarget, relativeTarget && `${relativeTarget}.md`, safeRelative(raw), safeRelative(`${raw}.md`)].filter((value): value is string => !!value);
+        const targets = [relativeTarget, safeRelative(raw)].filter((value): value is string => !!value);
+        const exactTargets = targets.flatMap((target) => [target, ...[".md", ".mdx", ".markdown", ".mdown"].map((extension) => `${target}${extension}`)]);
         for (const target of exactTargets) { const found = lookup.get(target.toLowerCase()); if (found) { candidates = [found]; break; } }
-        if (!candidates.length && link.type === "wikilink" && !raw.includes("/")) candidates = basenameIndex.get(basename(raw, ".md").toLowerCase()) ?? [];
+        if (!candidates.length && link.type === "wikilink" && !raw.includes("/")) candidates = basenameIndex.get(basename(raw, documentFormat(raw) ? extname(raw) : "").toLowerCase()) ?? [];
       }
       links.push({ from: item.path, to: candidates.length === 1 ? candidates[0].path : "", type: link.type,
         target: link.target, line: link.line, issue: candidates.length > 1 ? "ambiguous" : candidates.length === 0 ? "missing" : null });
@@ -207,9 +227,12 @@ export class KnowledgeIndex {
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM knowledge_links WHERE vault_id = ?").run(vaultId);
       this.db.prepare("DELETE FROM knowledge_items WHERE vault_id = ?").run(vaultId);
+      this.db.prepare("DELETE FROM knowledge_directories WHERE vault_id = ?").run(vaultId);
+      const insertDirectory = this.db.prepare("INSERT INTO knowledge_directories (vault_id,path) VALUES (?,?)");
+      for (const path of directories) insertDirectory.run(vaultId, path);
       const insertItem = this.db.prepare(`INSERT INTO knowledge_items
-        (vault_id,path,kind,title,body,modified_at,imported_at,fingerprint,original_url,analysis_status,folder)
-        VALUES (@vaultId,@path,@kind,@title,@body,@modifiedAt,@importedAt,@fingerprint,@originalUrl,@analysisStatus,@folder)`);
+        (vault_id,path,kind,title,body,modified_at,imported_at,fingerprint,original_url,analysis_status,folder,size_bytes)
+        VALUES (@vaultId,@path,@kind,@title,@body,@modifiedAt,@importedAt,@fingerprint,@originalUrl,@analysisStatus,@folder,@sizeBytes)`);
       for (const item of items) insertItem.run(item);
       const insertLink = this.db.prepare(`INSERT OR IGNORE INTO knowledge_links
         (vault_id,from_path,to_path,type,target,line,issue) VALUES (?,?,?,?,?,?,?)`);
@@ -242,14 +265,17 @@ export class KnowledgeIndex {
     if (Date.now() - (this.lastRefresh.get(vaultId) ?? 0) > 5000) this.refresh(vaultId);
   }
 
-  list(options: { vaultId?: string; q?: string; kind?: Kind; folder?: string; analysisStatus?: string; modifiedSince?: string; sort?: string; page: number; pageSize: number }) {
-    for (const vault of options.vaultId ? [this.vault(options.vaultId)] : this.registry.list().vaults) this.ensureFresh(vault.id);
+  list(options: { vaultId?: string; vaultIds?: string[]; q?: string; kind?: Kind; folder?: string; analysisStatus?: string; modifiedSince?: string; sort?: string; page: number; pageSize: number }) {
+    const vaultIds = options.vaultIds ?? (options.vaultId ? [options.vaultId] : undefined);
+    if (vaultIds && (vaultIds.length > 20 || new Set(vaultIds).size !== vaultIds.length || vaultIds.some(id => !id))) throw new KnowledgeError("INVALID_KNOWLEDGE_QUERY", 422);
+    for (const vault of vaultIds ? vaultIds.map(id => this.vault(id)) : this.registry.list().vaults) this.ensureFresh(vault.id);
     const query = options.q?.trim().toLocaleLowerCase() ?? "";
     const matched = query ? new Set((this.db.prepare(`SELECT vault_id AS vaultId,path FROM knowledge_items
       WHERE ${options.vaultId ? "vault_id = ? AND" : ""} (instr(lower(title), ?) > 0 OR instr(lower(path), ?) > 0 OR instr(lower(body), ?) > 0)`)
       .all(...(options.vaultId ? [options.vaultId] : []), query, query, query) as { vaultId: string; path: string }[])
       .map((row) => `${row.vaultId}:${row.path}`)) : null;
     let items = this.rows(options.vaultId).filter((item) =>
+      (!vaultIds || vaultIds.includes(item.vaultId)) &&
       (!options.kind || item.kind === options.kind) && (!options.folder || item.folder === options.folder || item.folder.startsWith(`${options.folder}/`)) &&
       (!options.analysisStatus || (options.analysisStatus === "analyzed" ? !!item.analysisStatus :
         options.analysisStatus === "none" ? !item.analysisStatus : item.analysisStatus === options.analysisStatus)) &&
@@ -269,6 +295,9 @@ export class KnowledgeIndex {
   folders(vaultId?: string) {
     for (const vault of vaultId ? [this.vault(vaultId)] : this.registry.list().vaults) this.ensureFresh(vault.id);
     const counts = new Map<string, number>();
+    const directories = (vaultId ? this.db.prepare("SELECT vault_id AS vaultId,path FROM knowledge_directories WHERE vault_id = ?").all(vaultId) :
+      this.db.prepare("SELECT vault_id AS vaultId,path FROM knowledge_directories").all()) as { vaultId: string; path: string }[];
+    for (const item of directories) counts.set(`${item.vaultId}:${item.path}`, 0);
     for (const item of this.rows(vaultId)) {
       const parts = item.folder ? item.folder.split("/") : [];
       counts.set(`${item.vaultId}:`, (counts.get(`${item.vaultId}:`) ?? 0) + 1);
@@ -291,8 +320,11 @@ export class KnowledgeIndex {
     if (!item) throw new KnowledgeError("KNOWLEDGE_ITEM_NOT_FOUND", 404);
     const real = safeFile(vault.path, clean);
     if (!real) throw new KnowledgeError("KNOWLEDGE_ITEM_NOT_FOUND", 404);
-    const markdown = readFileSync(real, "utf8");
-    if (item.kind === "source" && createHash("sha256").update(markdown).digest("hex") !== item.fingerprint) {
+    const sizeBytes = lstatSync(real).size;
+    const previewLimited = item.format !== "pdf" && sizeBytes > maxFileBytes;
+    const raw = item.format === "pdf" || previewLimited ? "" : readFileSync(real, "utf8");
+    const markdown = documentText(clean, raw);
+    if (item.kind === "source" && !previewLimited && createHash("sha256").update(raw).digest("hex") !== item.fingerprint) {
       throw new KnowledgeError("KNOWLEDGE_ITEM_CHANGED", 409);
     }
     const links = this.linkRows(vaultId);
@@ -306,11 +338,37 @@ export class KnowledgeIndex {
         author = source?.author ?? null;
       } catch { /* The source itself remains readable; overview reports manifest errors on rescan. */ }
     }
-    return { ...item, markdown, absolutePath: real,
+    return { ...item, sizeBytes, previewLimited, markdown, absolutePath: real,
       authorship, author,
       outlinks: links.filter((link) => link.from === clean && link.to),
       backlinks: links.filter((link) => link.to === clean),
-      issues: links.filter((link) => link.from === clean && link.issue) };
+      issues: links.filter((link) => link.from === clean && link.issue).map((link) =>
+        ({ from: link.from, target: link.target, reason: link.issue as KnowledgeIssue["reason"], line: link.line })) };
+  }
+
+  file(vaultId: string, path: string) {
+    const vault = this.vault(vaultId);
+    const clean = safeRelative(path);
+    if (!clean) throw new KnowledgeError("INVALID_KNOWLEDGE_PATH", 422);
+    this.ensureFresh(vaultId);
+    const item = this.rows(vaultId).find((row) => row.path === clean);
+    const real = item && safeFile(vault.path, clean);
+    if (!item || !real) throw new KnowledgeError("KNOWLEDGE_ITEM_NOT_FOUND", 404);
+    let fd: number | undefined;
+    try {
+      fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const stat = fstatSync(fd);
+      // Recheck the path after opening, including parent directories, and bind the stream to this inode.
+      const verified = safeFile(vault.path, clean);
+      const current = verified ? lstatSync(verified) : null;
+      if (!stat.isFile() || !current || current.dev !== stat.dev || current.ino !== stat.ino) {
+        throw new KnowledgeError("KNOWLEDGE_ITEM_NOT_FOUND", 404);
+      }
+      return { path: real, fd, format: item.format, size: stat.size };
+    } catch {
+      if (fd !== undefined) closeSync(fd);
+      throw new KnowledgeError("KNOWLEDGE_ITEM_NOT_FOUND", 404);
+    }
   }
 
   private linkRows(vaultId: string): (KnowledgeLink & { issue: string | null })[] {
@@ -329,7 +387,7 @@ export class KnowledgeIndex {
       selected = selected.filter((item) => neighbors.has(item.path));
     }
     const totalNodes = selected.length;
-    selected = selected.sort((a, b) => a.path.localeCompare(b.path)).slice(0, options.limit ?? 120);
+    selected = selected.sort((a, b) => a.path.localeCompare(b.path)).slice(0, options.limit ?? 300);
     const paths = new Set(selected.map((item) => item.path));
     return { vaultId, nodes: selected, totalNodes, truncated: selected.length < totalNodes,
       edges: links.filter((link) => !!link.to && paths.has(link.from) && paths.has(link.to)).map(({ issue, ...link }) => link),
@@ -337,7 +395,7 @@ export class KnowledgeIndex {
         ({ from: link.from, target: link.target, reason: link.issue, line: link.line })) as KnowledgeIssue[] };
   }
 
-  overview(vaultId?: string) {
+  overview(vaultId?: string, limit = 10) {
     const vaults = vaultId ? [this.vault(vaultId)] : this.registry.list().vaults;
     const summaries = vaults.map((vault) => {
       this.ensureFresh(vault.id);
@@ -355,13 +413,13 @@ export class KnowledgeIndex {
     });
     const items = this.rows(vaultId);
     return { vaults: summaries,
-      recentSources: items.filter((item) => item.kind === "source").sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? "")).slice(0, 8),
-      recentNotes: items.filter((item) => item.kind === "note").sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt)).slice(0, 8) };
+      recentSources: items.filter((item) => item.kind === "source").sort((a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? "")).slice(0, limit),
+      recentNotes: items.filter((item) => item.kind === "note").sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt)).slice(0, limit) };
   }
 
   forget(vaultId: string) {
     this.db.transaction(() => {
-      for (const table of ["knowledge_links", "knowledge_items", "knowledge_state"]) this.db.prepare(`DELETE FROM ${table} WHERE vault_id = ?`).run(vaultId);
+      for (const table of ["knowledge_links", "knowledge_items", "knowledge_state", "knowledge_directories"]) this.db.prepare(`DELETE FROM ${table} WHERE vault_id = ?`).run(vaultId);
     })();
     this.lastRefresh.delete(vaultId);
     this.watchers.get(vaultId)?.close(); this.watchers.delete(vaultId);

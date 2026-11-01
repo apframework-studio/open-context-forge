@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { expect, test } from "vitest";
 import { createApp } from "../app.js";
+import { waitForFiling } from "../import/test-filings.js";
 
 const maintainerRoot = resolve(process.cwd(), "../../../open-context-forge-vault-maintainer");
 
@@ -126,15 +127,16 @@ test("commits an immutable source snapshot and repeated commit reports duplicate
     const url = `/api/v1/imports/${batchId}/items/capture-1/commit`;
     const request = { method: "POST" as const, url, headers: { "x-ocf-client": "1" }, payload: { vaultId: "default" } };
     const first = await app.inject(request);
-    expect(first.statusCode).toBe(200);
-    const result = first.json();
+    expect(first.statusCode).toBe(202);
+    const result = await waitForFiling(app, first.json().job.id);
     expect(result).toMatchObject({ vaultId: "default", duplicate: false });
     const snapshot = join(dataDir, "vaults", "default", result.snapshot);
     expect(readFileSync(snapshot, "utf8")).toContain("这是一篇真实来源的正文。");
     expect(readFileSync(snapshot, "utf8")).toContain("采集备注");
     const second = await app.inject(request);
-    expect(second.statusCode).toBe(200);
-    expect(second.json()).toMatchObject({ snapshot: result.snapshot, duplicate: true });
+    expect(second.statusCode).toBe(202);
+    expect(second.json().job.id).toBe(first.json().job.id);
+    expect(second.json().job.result).toMatchObject({ snapshot: result.snapshot });
     const batch = await app.inject({ method: "GET", url: `/api/v1/imports/${batchId}` });
     expect(batch.json().candidates[0].status).toBe("imported");
   } finally { await app.close(); rmSync(root, { recursive: true, force: true }); }
@@ -147,7 +149,8 @@ test("vault source index lists filed content and exposes its checked snapshot", 
     const batchId = await preflight(app);
     const filed = await app.inject({ method: "POST", url: `/api/v1/imports/${batchId}/items/capture-1/commit`,
       headers: { "x-ocf-client": "1" }, payload: { vaultId: "default" } });
-    const fingerprint = filed.json().fingerprint;
+    expect(filed.statusCode).toBe(202);
+    const fingerprint = (await waitForFiling(app, filed.json().job.id)).fingerprint;
     const listed = await app.inject({ method: "GET", url: "/api/v1/vaults/default/sources?page=1&pageSize=20" });
     expect(listed.statusCode).toBe(200);
     expect(listed.json().total).toBe(1);

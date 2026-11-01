@@ -71,6 +71,11 @@ export class BlogDeploy {
 
   async publish(id: string, confirmedRevision: unknown, confirmedArticlePath: unknown): Promise<Publication> {
     const publication = await this.publications.getById(id);
+    return this.articles.withActivity(publication.articleId, () => this.publishPackage(publication, confirmedRevision, confirmedArticlePath));
+  }
+
+  private async publishPackage(publication: Publication, confirmedRevision: unknown, confirmedArticlePath: unknown): Promise<Publication> {
+    const id = publication.id;
     if (publication.revision !== confirmedRevision || publication.articlePath !== confirmedArticlePath) {
       throw new BlogDeployError("CONFIRMATION_MISMATCH", 409);
     }
@@ -134,6 +139,11 @@ export class BlogDeploy {
 
   async verify(id: string, publicUrl: unknown, confirmedLayout: unknown): Promise<Publication> {
     const publication = await this.publications.getById(id);
+    return this.articles.withActivity(publication.articleId, () => this.verifyPublication(publication, publicUrl, confirmedLayout));
+  }
+
+  private async verifyPublication(publication: Publication, publicUrl: unknown, confirmedLayout: unknown): Promise<Publication> {
+    const id = publication.id;
     if (publication.status !== "deployment-pending" && publication.status !== "live") {
       throw new BlogDeployError("VERIFY_FAILED", 409);
     }

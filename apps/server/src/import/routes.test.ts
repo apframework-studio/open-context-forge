@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { expect, test } from "vitest";
 import { createApp } from "../app.js";
+import { waitForFiling } from "./test-filings.js";
 
 function capture(id: string, warnings: string[] = []) {
   const markdown = "一篇可供整理的文章正文";
@@ -63,6 +64,8 @@ test("imports a local Markdown file through the existing pending and vault flow"
   const dataDir = mkdtempSync(join(tmpdir(), "ocf-local-import-"));
   const app = createApp({ dataDir });
   try {
+    await app.inject({ method: "PUT", url: "/api/v1/imports/policy", headers: { "x-ocf-client": "1" },
+      payload: { mode: "manual" } });
     const response = await app.inject({ method: "POST", url: "/api/v1/imports/preflight",
       ...multipart(strToU8("# 本地研究\n\n完整正文"), "本地研究.md", "text/markdown") });
     expect(response.statusCode).toBe(201);
@@ -77,7 +80,7 @@ test("imports a local Markdown file through the existing pending and vault flow"
       headers: { "x-ocf-client": "1" },
       payload: { action: "file", vaultId: "default", items: [{ batchId: response.json().batchId, captureId: candidate.id }] } });
     expect(filed.json().results[0].ok).toBe(true);
-    const snapshot = filed.json().results[0].snapshot as string;
+    const snapshot = (await waitForFiling(app, filed.json().results[0].jobId)).snapshot;
     const markdown = readFileSync(join(dataDir, "vaults", "default", snapshot), "utf8");
     expect(markdown).toContain("本地文件：本地研究.md");
     expect(markdown).not.toContain("https://local");

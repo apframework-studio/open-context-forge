@@ -1,0 +1,131 @@
+import { randomUUID } from "node:crypto";
+import { expect, test } from "@playwright/test";
+
+test("article list opens publication for the selected article and supports recoverable batch deletion without layout movement", async ({ page }) => {
+  const prefix = `管理-${randomUUID().slice(0, 8)}`;
+  const created: { id: string; expectedRevision: number }[] = [];
+  for (const suffix of ["A", "B"]) {
+    const response = await page.request.post("/api/v1/articles", { headers: { "x-ocf-client": "1" }, data: { title: `${prefix}-${suffix}：文章列表中的长标题，用于检查管理操作与内容不会互相挤压` } });
+    expect(response.status()).toBe(201);
+    const article = await response.json();
+    created.push({ id: article.id, expectedRevision: article.revision });
+  }
+  await page.setViewportSize({ width: 1440, height: 850 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
+  const rows = page.locator(".article-list-item");
+  await expect(rows).toHaveCount(2);
+  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "发布", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "博客发布准备" })).toBeVisible();
+  await expect(page.locator(".screen-stack")).toContainText(`${prefix}-A`);
+  await expect(page.getByRole("button", { name: "生成本地发布包" })).toBeDisabled();
+  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
+  const first = rows.filter({ hasText: `${prefix}-A` });
+  await first.getByRole("button", { name: "删除", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "移入文章回收站" });
+  await expect(dialog).toContainText("已发布渠道的内容不会下线");
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(rows).toHaveCount(2);
+  const before = (await first.boundingBox())!;
+  await page.getByRole("checkbox", { name: "选择本页文章" }).check();
+  const after = (await first.boundingBox())!;
+  expect(after.width).toBe(before.width);
+  expect(after.y).toBe(before.y);
+  const bulk = page.getByRole("toolbar", { name: "批量文章操作" });
+  await expect(bulk).toContainText("已选择 2 篇");
+  await bulk.getByRole("button", { name: "批量删除" }).click();
+  await dialog.getByRole("button", { name: "移入回收站" }).click();
+  await expect(rows).toHaveCount(0);
+  await page.getByRole("button", { name: /预览与发布/ }).click();
+  await expect(page.getByRole("heading", { name: "文章定稿后即可预览渠道效果" })).toBeVisible();
+  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
+  await page.getByRole("tab", { name: /回收站/ }).click();
+  await expect(rows).toHaveCount(2);
+  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "恢复", exact: true }).click();
+  await expect(rows).toHaveCount(1);
+  await page.getByRole("tab", { name: /全部文章/ }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`${prefix}-A`);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(rows.first().getByRole("button", { name: "发布", exact: true })).toBeVisible();
+  await rows.first().getByRole("checkbox").check();
+  await expect(bulk).toBeVisible();
+  const mobileBar = (await bulk.boundingBox())!;
+  expect(mobileBar.x).toBeGreaterThanOrEqual(0);
+  expect(mobileBar.x + mobileBar.width).toBeLessThanOrEqual(375);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await page.request.post("/api/v1/articles/actions", { headers: { "x-ocf-client": "1" }, data: { action: "trash", items: created } });
+});
+
+test("empty article trash clears every trashed article after confirmation despite active search filters", async ({ page }) => {
+  const prefix = `清空-${randomUUID().slice(0, 8)}`;
+  const created: { id: string; expectedRevision: number }[] = [];
+  for (const suffix of ["A", "B", "保留"]) {
+    const response = await page.request.post("/api/v1/articles", { headers: { "x-ocf-client": "1" }, data: { title: `${prefix}-${suffix}` } });
+    const article = await response.json();
+    created.push({ id: article.id, expectedRevision: article.revision });
+  }
+  await page.request.post("/api/v1/articles/actions", { headers: { "x-ocf-client": "1" }, data: { action: "trash", items: created.slice(0, 2) } });
+  const before = (await (await page.request.get("/api/v1/articles?includeTrashed=true")).json()).items;
+  const count = before.filter((item: { trashedAt: string | null }) => item.trashedAt).length;
+  await page.goto("/");
+  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await expect(page.getByRole("button", { name: "清空回收站", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: /回收站/ }).click();
+  await page.getByRole("textbox", { name: "搜索文章" }).fill(`${prefix}-A`);
+  await expect(page.locator(".article-list-item")).toHaveCount(1);
+  await page.getByRole("button", { name: "清空回收站", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "清空文章回收站", exact: true });
+  await expect(dialog).toContainText(`${count} 篇文章`);
+  await expect(dialog).toContainText("无法恢复");
+  await expect(dialog).toContainText("不受当前搜索");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.locator(".article-list-item")).toHaveCount(1);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole("button", { name: "清空回收站", exact: true }).click();
+  await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: "清空回收站", exact: true })).toBeDisabled();
+  await expect(page.locator(".article-list-item")).toHaveCount(0);
+  expect((await page.request.get(`/api/v1/articles/${created[2].id}`)).status()).toBe(200);
+  for (const item of created.slice(0, 2)) expect((await page.request.get(`/api/v1/articles/${item.id}`)).status()).toBe(404);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test("article trash supports confirmed single and selected permanent deletion without clearing other articles", async ({ page }) => {
+  const prefix = `逐篇删除-${randomUUID().slice(0, 8)}`;
+  const created: { id: string; expectedRevision: number }[] = [];
+  for (const suffix of ["A", "B", "C", "留在回收站", "正常文章"]) {
+    const response = await page.request.post("/api/v1/articles", { headers: { "x-ocf-client": "1" }, data: { title: `${prefix}-${suffix}` } });
+    const article = await response.json();
+    created.push({ id: article.id, expectedRevision: article.revision });
+  }
+  await page.request.post("/api/v1/articles/actions", { headers: { "x-ocf-client": "1" }, data: { action: "trash", items: created.slice(0, 4) } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await page.getByRole("tab", { name: /回收站/ }).click();
+  await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
+  const rows = page.locator(".article-list-item");
+  await expect(rows).toHaveCount(4);
+  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "永久删除", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "永久删除文章", exact: true });
+  await expect(dialog).toContainText("所选的 1 篇文章");
+  await expect(dialog).toContainText("其他回收站文章保留");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(rows).toHaveCount(4);
+  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "永久删除", exact: true }).click();
+  await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+  await expect(rows).toHaveCount(3);
+  for (const suffix of ["B", "C"]) await rows.filter({ hasText: `${prefix}-${suffix}` }).getByRole("checkbox").check();
+  await page.getByRole("toolbar", { name: "批量文章操作" }).getByRole("button", { name: "批量永久删除", exact: true }).click();
+  await expect(dialog).toContainText("所选的 2 篇文章");
+  await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`${prefix}-留在回收站`);
+  for (const item of created.slice(0, 3)) expect((await page.request.get(`/api/v1/articles/${item.id}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/v1/articles/${created[3].id}`)).status()).toBe(409);
+  expect((await page.request.get(`/api/v1/articles/${created[4].id}`)).status()).toBe(200);
+});

@@ -6,6 +6,7 @@ import { strToU8, zipSync } from "fflate";
 import { expect, test } from "vitest";
 import Database from "better-sqlite3";
 import { createApp } from "../app.js";
+import { waitForFiling } from "./test-filings.js";
 
 const maintainerRoot = resolve(process.cwd(), "../../../open-context-forge-vault-maintainer");
 const headers = { "x-ocf-client": "1" };
@@ -72,6 +73,7 @@ test("shelving and trash remove captures from pending without deleting their rec
   const dataDir = mkdtempSync(join(tmpdir(), "ocf-workbench-"));
   const app = createApp({ dataDir, maintainerRoot });
   try {
+    await app.inject({ method: "PUT", url: "/api/v1/imports/policy", headers, payload: { mode: "manual" } });
     const uploaded = await app.inject({ method: "POST", url: "/api/v1/imports/preflight", ...multipart(["alpha", "beta"]) });
     const batchId = uploaded.json().batchId;
     const items = (captureId: string) => [{ batchId, captureId }];
@@ -117,6 +119,33 @@ test("automatic filing policy stores ready captures in the selected vault", asyn
     expect(pending.json().total).toBe(0);
     const recent = await app.inject({ method: "GET", url: "/api/v1/imports/items?view=recent" });
     expect(recent.json().items[0]).toMatchObject({ captureId: "alpha", vaultId: "default" });
+  } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test("vault maintenance is opt-in and filing enqueues one durable job per source fingerprint", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "ocf-maintenance-policy-"));
+  const app = createApp({ dataDir, maintainerRoot, agentOptions: { claudePath: null } });
+  try {
+    await app.inject({ method: "GET", url: "/api/v1/vaults" });
+    const initial = await app.inject({ method: "GET", url: "/api/v1/vaults/default/maintenance-policy" });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json().enabled).toBe(false);
+    const enabled = await app.inject({ method: "PUT", url: "/api/v1/vaults/default/maintenance-policy", headers,
+      payload: { enabled: true } });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().enabled).toBe(true);
+    const uploaded = await app.inject({ method: "POST", url: "/api/v1/imports/preflight", ...multipart(["maintain-me"]) });
+    const batchId = uploaded.json().batchId;
+    const commitUrl = `/api/v1/imports/${batchId}/items/maintain-me/commit`;
+    const first = await app.inject({ method: "POST", url: commitUrl, headers, payload: { vaultId: "default" } });
+    expect(first.statusCode).toBe(202);
+    const filing = await waitForFiling(app, first.json().job.id);
+    const second = await app.inject({ method: "POST", url: commitUrl, headers, payload: { vaultId: "default" } });
+    expect(second.statusCode).toBe(202);
+    expect(second.json().job.id).toBe(first.json().job.id);
+    const jobs = await app.inject({ method: "GET", url: "/api/v1/maintenance/jobs?vaultId=default" });
+    expect(jobs.statusCode).toBe(200);
+    expect(jobs.json().jobs.filter((job: { fingerprint: string }) => job.fingerprint === filing.fingerprint)).toHaveLength(1);
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
@@ -166,11 +195,14 @@ test("one capture can be filed into two vaults and found by either vault filter"
     const commit = (vaultId: string) => app.inject({ method: "POST", url: `/api/v1/imports/${batchId}/items/shared/commit`,
       headers, payload: { vaultId } });
     const firstFiling = await commit("default");
-    expect(firstFiling.statusCode).toBe(200);
-    expect((await commit("research")).statusCode).toBe(200);
+    expect(firstFiling.statusCode).toBe(202);
+    const firstResult = await waitForFiling(app, firstFiling.json().job.id);
+    const secondFiling = await commit("research");
+    expect(secondFiling.statusCode).toBe(202);
+    await waitForFiling(app, secondFiling.json().job.id);
     const repeated = await commit("research");
-    expect(repeated.statusCode).toBe(200);
-    expect(repeated.json().duplicate).toBe(true);
+    expect(repeated.statusCode).toBe(202);
+    expect(repeated.json().job.id).toBe(secondFiling.json().job.id);
     for (const vaultId of ["default", "research"]) {
       const listed = await app.inject({ method: "GET", url: `/api/v1/imports/items?view=all&vaultId=${vaultId}` });
       expect(listed.json().items[0].vaults.map((entry: { vaultId: string }) => entry.vaultId)).toEqual(["default", "research"]);
@@ -179,7 +211,7 @@ test("one capture can be filed into two vaults and found by either vault filter"
     }
     const batch = await app.inject({ method: "GET", url: `/api/v1/imports/${batchId}` });
     expect(batch.json().candidates[0].vaults).toHaveLength(2);
-    const fingerprint = firstFiling.json().fingerprint as string;
+    const fingerprint = firstResult.fingerprint;
     const db = new Database(join(dataDir, "state.sqlite"));
     try {
       const card = { vaultId: "", snapshot: `inbox/${batchId}/shared`, fingerprint, status: "proposed",
@@ -244,7 +276,9 @@ test("concurrent filing attempts never mark a successful source as failed", asyn
     const request = { method: "POST" as const, url: `/api/v1/imports/${batchId}/items/parallel/commit`,
       headers, payload: { vaultId: "default" } };
     const results = await Promise.all([app.inject(request), app.inject(request)]);
-    expect(results.map((item) => item.statusCode).sort()).toEqual([200, 409]);
+    expect(results.map((item) => item.statusCode).sort()).toEqual([202, 202]);
+    expect(results[0].json().job.id).toBe(results[1].json().job.id);
+    await waitForFiling(app, results[0].json().job.id);
     const saved = await app.inject({ method: "GET", url: `/api/v1/imports/${batchId}` });
     expect(saved.json().candidates[0].status).toBe("imported");
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }

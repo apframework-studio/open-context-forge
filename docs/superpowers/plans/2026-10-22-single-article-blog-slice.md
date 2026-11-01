@@ -1,5 +1,7 @@
 # Single Article to Blog Implementation Plan
 
+> 历史实施计划。自 2026-11-01 起，文章工作台左侧大纲和正文只读，修改通过右侧讨论及提案审阅采用完成；当前行为见 [多知识库文章创作设计](../specs/2026-10-27-article-creation-context.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在本机流程工作台中，自动提供内置默认 vault，也能添加外部 vault；将一篇 Clipper 资料导入所选 vault，人工完成一篇文章，预览并经确认后发布到 apframework 博客，最后验证公开链接。

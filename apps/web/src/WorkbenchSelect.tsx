@@ -8,13 +8,16 @@ interface Props {
   onChange: (value: string) => void;
   className?: string;
   title?: string;
+  disabled?: boolean;
 }
 
 const optionValue = (value: string) => value === "" ? "all" : `value:${value}`;
 
-export function WorkbenchSelect({ label, value, options, onChange, className = "", title }: Props) {
-  return <Select.Root value={optionValue(value)} onValueChange={(next) => onChange(next === "all" ? "" : next.slice(6))}>
-    <Select.Trigger className={`workbench-select-trigger ${className}`} aria-label={label} title={title}>
+export function WorkbenchSelect({ label, value, options, onChange, className = "", title, disabled }: Props) {
+  const current = options.find((option) => option.value === value);
+  const shownOptions = current ? options : [{ value, label: value || "暂无可选项" }, ...options];
+  return <Select.Root disabled={disabled} value={optionValue(value)} onValueChange={(next) => onChange(next === "all" ? "" : next.slice(6))}>
+    <Select.Trigger className={`workbench-select-trigger ${className}`} aria-label={label} title={title ?? current?.label ?? value}>
       <Select.Value />
       <Select.Icon className="workbench-select-icon" aria-hidden="true"><span className="workbench-select-chevron" /></Select.Icon>
     </Select.Trigger>
@@ -22,7 +25,7 @@ export function WorkbenchSelect({ label, value, options, onChange, className = "
       <Select.Content className="workbench-select-menu" position="popper" side="bottom" align="start" sideOffset={5}
         collisionPadding={8} aria-label={`${label}选项`}>
         <Select.Viewport className="workbench-select-options">
-          {options.map((option) => <Select.Item className="workbench-select-option" key={optionValue(option.value)} value={optionValue(option.value)}>
+          {shownOptions.map((option) => <Select.Item className="workbench-select-option" key={optionValue(option.value)} value={optionValue(option.value)}>
             <Select.ItemText>{option.label}</Select.ItemText>
             <Select.ItemIndicator className="workbench-select-check" aria-hidden="true">✓</Select.ItemIndicator>
           </Select.Item>)}

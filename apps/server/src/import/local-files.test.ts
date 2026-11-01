@@ -71,3 +71,26 @@ test("skips a binary file with a text extension when other ZIP documents are val
   expect(result.candidates.map((item) => item.title)).toEqual(["正文"]);
   expect(result.skippedFiles).toBe(1);
 });
+
+test("local article retains author evidence from frontmatter and HTML head", () => {
+  const markdown = parseImportUpload(strToU8("---\nauthor: Ada Lovelace\n---\n# Engines\n\nBody"), "engines.md").candidates[0];
+  expect(markdown.author).toBe("Ada Lovelace");
+  expect(markdown.authorEvidence).toMatchObject({ kind: "frontmatter", location: "frontmatter:author" });
+  const html = parseImportUpload(strToU8('<head><meta content="Grace Hopper" name="author"></head><h1>Compiler</h1>'), "compiler.html").candidates[0];
+  expect(html.author).toBe("Grace Hopper");
+  expect(html.authorEvidence).toMatchObject({ kind: "html_meta" });
+});
+
+test("Clipper structured author retains its source evidence", () => {
+  const markdown = "# Scaling Analytics\n\nArticle";
+  const record = {
+    schemaVersion: 1, id: "meta", source: { originalUrl: "https://example.org/meta", canonicalUrl: "https://example.org/meta",
+      title: "Scaling Analytics", author: "Benjamin Wan Rothschild" },
+    content: { markdown, wordCount: markdown.length, imageUrls: [] },
+    capture: { capturedAt: "2026-10-29T00:00:00Z", extractor: "readability",
+      contentHash: createHash("sha256").update(markdown).digest("hex"), warnings: [] },
+    user: {}, delivery: { status: "queued", attempts: 0 },
+  };
+  const item = parseImportUpload(zipSync({ "captures.json": strToU8(JSON.stringify([record])) }), "clipper.zip").candidates[0];
+  expect(item.authorEvidence).toMatchObject({ value: "Benjamin Wan Rothschild", kind: "clipper" });
+});

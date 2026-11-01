@@ -3,6 +3,7 @@ import { basename, extname } from "node:path";
 import { unzipSync } from "fflate";
 import type { CaptureCandidate } from "@ocf/contracts";
 import { ImportError, parseClipperZip } from "./clipper-zip.js";
+import { extractLocalAuthor } from "./metadata.js";
 
 const MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
@@ -26,7 +27,7 @@ function decodeEntities(value: string): string {
   });
 }
 
-function htmlToMarkdown(html: string): { title: string | null; markdown: string } {
+export function htmlToMarkdown(html: string): { title: string | null; markdown: string } {
   const title = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]
     ?.replace(/<[^>]+>/g, "").trim() ?? null;
   let body = html.replace(/<!--[\s\S]*?-->/g, "")
@@ -67,6 +68,7 @@ function textCandidate(bytes: Uint8Array, name: string): CaptureCandidate {
   catch { throw new ImportError("INVALID_TEXT_FILE"); }
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) throw new ImportError("INVALID_TEXT_FILE");
   const extension = extname(filename).toLowerCase();
+  const authorEvidence = extractLocalAuthor(text, extension === ".html" || extension === ".htm" ? "html" : "markdown");
   const html = extension === ".html" || extension === ".htm" ? htmlToMarkdown(text) : null;
   const markdown = (html?.markdown ?? text).replace(/\r\n?/g, "\n").trim();
   if (!markdown) throw new ImportError("INVALID_TEXT_FILE");
@@ -77,6 +79,7 @@ function textCandidate(bytes: Uint8Array, name: string): CaptureCandidate {
     title: (html?.title || heading || stem).slice(0, 300),
     originalUrl: null,
     sourceFilename: filename,
+    ...(authorEvidence ? { author: authorEvidence.value, authorEvidence } : {}),
     capturedAt: new Date().toISOString(),
     markdown,
     contentHash: createHash("sha256").update(markdown).digest("hex"),

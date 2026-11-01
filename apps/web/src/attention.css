@@ -1,0 +1,15 @@
+.attention-trigger { white-space: nowrap; }
+.attention-badge { margin-left: auto; padding: 2px 7px; border-radius: 999px; background: var(--ocf-accent); color: white !important; }
+.attention-reminder { display: flex; align-items: center; gap: 12px; padding: 10px 48px; background: var(--ocf-subtle); border-bottom: 1px solid var(--ocf-border); font-size: 13px; }
+.attention-reminder span { flex: 1; }
+.attention-center { position: absolute; z-index: 8; top: 68px; right: 32px; width: min(440px, calc(100vw - 40px)); max-height: min(70vh, 650px); overflow: auto; padding: 18px; border: 1px solid var(--ocf-border); border-radius: 12px; background: var(--ocf-surface); box-shadow: 0 18px 45px rgba(0,0,0,.16); }
+.attention-center-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ocf-border); }
+.attention-center-head span,.attention-item small { color: var(--ocf-secondary); font-size: 11px; }
+.attention-items { display: grid; gap: 12px; padding-top: 12px; }
+.attention-item { padding: 12px; border-radius: 9px; background: var(--ocf-subtle); }
+.attention-item strong,.attention-item small { display: block; }
+.attention-item p { margin: 8px 0; font-size: 12px; }
+.attention-item .action-row { margin: 0; }
+.attention-detail { margin-top: 10px; font-size: 12px; overflow-wrap: anywhere; }
+.attention-detail pre { max-height: 240px; overflow: auto; white-space: pre-wrap; background: var(--ocf-surface); padding: 10px; border-radius: 6px; }
+@media (max-width: 680px) { .attention-reminder { padding: 10px 18px; flex-wrap: wrap; } .attention-center { right: 12px; } }

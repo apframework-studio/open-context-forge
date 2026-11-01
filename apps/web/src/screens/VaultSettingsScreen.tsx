@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, type BrandingStatus, type ImportPolicy, type KnowledgeOverview, type Vault, type VaultList } from "../api";
+import { WorkbenchSelect } from "../WorkbenchSelect";
 
 interface Props {
   vaults: VaultList | null;
@@ -19,8 +20,10 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
   const [busy, setBusy] = useState(false);
   const [captureMode, setCaptureMode] = useState<ImportPolicy["mode"]>("manual");
   const [captureVaultId, setCaptureVaultId] = useState("");
+  const [captureAuthorship, setCaptureAuthorship] = useState<ImportPolicy["defaultAuthorship"]>("unknown");
   const [captureMessage, setCaptureMessage] = useState("");
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [maintenanceOverrides, setMaintenanceOverrides] = useState<Record<string, boolean>>({});
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [iconMessage, setIconMessage] = useState("");
@@ -37,6 +40,7 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
   useEffect(() => {
     void api<ImportPolicy>("/imports/policy").then((policy) => {
       setCaptureMode(policy.mode); setCaptureVaultId(policy.vaultId ?? vaults?.defaultVaultId ?? "");
+      setCaptureAuthorship(policy.defaultAuthorship);
     }).catch((error) => setCaptureMessage(error instanceof Error ? error.message : "读取采集规则失败"));
   }, [vaults]);
   useEffect(() => {
@@ -50,6 +54,7 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
     try {
       await api<ImportPolicy>("/imports/policy", { method: "PUT", body: {
         mode: captureMode, vaultId: captureMode === "auto-file" ? captureVaultId : null,
+        defaultAuthorship: captureAuthorship,
       } });
       setCaptureMessage("采集规则已保存");
     } catch (error) { setCaptureMessage(error instanceof Error ? error.message : "保存采集规则失败"); }
@@ -94,6 +99,20 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
     catch (error) { setMessage(error instanceof Error ? error.message : "切换失败"); }
   }
 
+  async function setAutoMaintain(vaultId: string, enabled: boolean) {
+    setMaintenanceOverrides((current) => ({ ...current, [vaultId]: enabled }));
+    setBusy(true); setMessage("");
+    try {
+      await api(`/vaults/${encodeURIComponent(vaultId)}/maintenance-policy`, { method: "PUT", body: { enabled } });
+      await refresh();
+      setMessage(`${vaultId} 已${enabled ? "启用" : "关闭"}入库后自动维护`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "保存自动维护设置失败"); }
+    finally {
+      setMaintenanceOverrides((current) => { const next = { ...current }; delete next[vaultId]; return next; });
+      setBusy(false);
+    }
+  }
+
   async function rescan(vaultId: string) {
     setBusy(true); setMessage("");
     try {
@@ -135,10 +154,16 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
     <section className="panel-card" id="capture-settings">
       <div className="section-heading"><div><span className="overline">BROWSER CAPTURE</span><h2>浏览器一键采集</h2></div><span className="tag">插件待接入</span></div>
       <p className="muted">浏览器插件尚未接入。当前可在资料处理台导入 Clipper ZIP；这里配置采集后的统一处理规则，插件接入后继续使用。</p>
-      <div className="form-grid two"><label>采集后如何处理<select value={captureMode} onChange={(event) => setCaptureMode(event.target.value as ImportPolicy["mode"])}>
-        <option value="manual">先放待整理</option><option value="auto-file">自动直接入库</option></select></label>
-        {captureMode === "auto-file" && <label>自动入库目标<select value={captureVaultId} onChange={(event) => setCaptureVaultId(event.target.value)}>
-          {vaults?.vaults.map((vault) => <option key={vault.id} value={vault.id}>{vault.id}</option>)}</select></label>}</div>
+      <div className="form-grid two"><div className="select-field"><span>采集后如何处理</span>
+        <WorkbenchSelect label="采集后如何处理" value={captureMode} onChange={(value) => setCaptureMode(value as ImportPolicy["mode"])}
+          options={[{ value: "manual", label: "先放待整理" }, { value: "auto-file", label: "自动直接入库" }]} /></div>
+        {captureMode === "auto-file" && <div className="select-field"><span>自动入库目标</span>
+          <WorkbenchSelect label="自动入库目标" value={captureVaultId} onChange={setCaptureVaultId}
+            options={vaults?.vaults.map((vault) => ({ value: vault.id, label: vault.id })) ?? []} /></div>}
+        <div className="select-field"><span>原文默认归属</span><WorkbenchSelect label="原文默认归属" value={captureAuthorship}
+          onChange={(value) => setCaptureAuthorship(value as ImportPolicy["defaultAuthorship"])}
+          options={[{ value: "unknown", label: "待确认" }, { value: "self", label: "本人原创" },
+            { value: "third_party", label: "第三方文章" }]} /></div></div>
       <div className="action-row"><button className="primary-button" disabled={captureBusy || (captureMode === "auto-file" && !captureVaultId)}
         onClick={() => void saveCapturePolicy()}>保存采集设置</button>{captureMessage && <span className="inline-message" role="status">{captureMessage}</span>}</div>
     </section>
@@ -155,12 +180,15 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
             {stats && <small>{stats.readable ? "可读取" : "无法读取"} · {stats.writable ? "可写入来源" : "无法写入来源"} · {stats.watching ? "监听文件变化" : "读取时检查变化"}</small>}
             {!!stats?.errors.length && <small className="inline-message error">{stats.errors.length} 项读取异常：{stats.errors[0]}</small>}</div>
           <div className="knowledge-connection-actions">
+            <label><input type="checkbox" aria-label={`${vault.id} 入库后自动维护`} checked={maintenanceOverrides[vault.id] ?? vault.autoMaintain}
+              disabled={busy} onChange={(event) => void setAutoMaintain(vault.id, event.currentTarget.checked)} />入库后自动维护</label>
             {!vault.isDefault && <button className="text-button" disabled={busy} onClick={() => void makeDefault(vault.id)}>设为默认</button>}
             <button className="text-button" disabled={busy} onClick={() => void rescan(vault.id)}>重新索引</button>
             {vault.kind === "external" && <button className="text-button" disabled={busy} onClick={() => void disconnect(vault.id)}>断开连接</button>}
           </div>
         </div>;
       })}</div>
+      <p className="muted">启用后，新入库资料进入单 CLI 串行队列；分析结论为 compile_now 且校验通过时直接写入知识笔记。</p>
     </section>
     <section className="panel-card">
       <div className="section-heading"><div><span className="overline">CONNECT</span><h2>连接已有知识库</h2></div></div>

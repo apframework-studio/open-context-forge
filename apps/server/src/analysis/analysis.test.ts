@@ -9,6 +9,7 @@ import { syncCaptureAnalysis } from "./service.js";
 import { createApp } from "../app.js";
 import { importSnapshot } from "../vaults/maintainer.js";
 import type { AgentRunner } from "../agents/runner.js";
+import { waitForFiling } from "../import/test-filings.js";
 
 const maintainerRoot = resolve(process.cwd(), "../../../open-context-forge-vault-maintainer");
 const writerRoot = resolve(process.cwd(), "../../../open-context-forge-tech-article-writer");
@@ -87,9 +88,10 @@ test("rejects capture confirmation when its filed vault snapshot has changed", a
     expect(proposed.statusCode).toBe(201);
     const filed = await app.inject({ method: "POST", url: `/api/v1/imports/${batchId}/items/changed/commit`, headers,
       payload: { vaultId: "default" } });
-    expect(filed.statusCode).toBe(200);
+    expect(filed.statusCode).toBe(202);
+    const filing = await waitForFiling(app, filed.json().job.id);
     const vaultPath = realpathSync(join(dataDir, "vaults", "default"));
-    writeFileSync(join(vaultPath, filed.json().snapshot), "内容已改动");
+    writeFileSync(join(vaultPath, filing.snapshot), "内容已改动");
     const confirmed = await app.inject({ method: "POST", url: `${base}/confirm`, headers,
       payload: { expectedFingerprint: proposed.json().fingerprint } });
     expect(confirmed.statusCode).toBe(409);
@@ -136,10 +138,11 @@ test("confirms a captured source card before filing and carries it into the vaul
     expect(confirmed.json().status).toBe("confirmed");
     const filed = await app.inject({ method: "POST", url: `/api/v1/imports/${batchId}/items/one/commit`, headers,
       payload: { vaultId: "default" } });
-    expect(filed.statusCode).toBe(200);
+    expect(filed.statusCode).toBe(202);
+    const filing = await waitForFiling(app, filed.json().job.id);
     const vaultPath = realpathSync(join(dataDir, "vaults", "default"));
-    const cardPath = join(vaultPath, ".ocf", "compilations", filed.json().fingerprint, "analysis.md");
-    expect(readFileSync(cardPath, "utf8")).toContain(`source_snapshot: '${filed.json().snapshot}'`);
+    const cardPath = join(vaultPath, ".ocf", "compilations", filing.fingerprint, "analysis.md");
+    expect(readFileSync(cardPath, "utf8")).toContain(`source_snapshot: '${filing.snapshot}'`);
     expect(readFileSync(cardPath, "utf8")).toContain("作者报告效率提高。");
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
@@ -175,7 +178,7 @@ test("proposes a line-grounded card without writing into vault, then confirms it
     expect(confirmed.json().status).toBe("confirmed");
     expect(readFileSync(cardPath, "utf8")).toContain(`L${context.evidenceLine}-L${context.evidenceLine}`);
     expect(readFileSync(cardPath, "utf8")).toContain(context.snapshot);
-    expect(readFileSync(cardPath, "utf8")).toContain("source_authorship: 'third_party'");
+    expect(readFileSync(cardPath, "utf8")).toContain("source_authorship: 'unknown'");
     const again = await context.app.inject({ method: "POST", url: "/api/v1/sources/analysis/confirm", headers,
       payload: { vaultId: "default", snapshot: context.snapshot, expectedFingerprint: context.fingerprint } });
     expect(again.statusCode).toBe(200);

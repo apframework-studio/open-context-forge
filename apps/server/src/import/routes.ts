@@ -2,36 +2,17 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { getBatch, insertBatch } from "../state/db.js";
-import { fileCapture, FilingError } from "./filing.js";
 import type { VaultRegistry } from "../vaults/registry.js";
 import { ImportError } from "./clipper-zip.js";
 import { parseImportUpload } from "./local-files.js";
+import type { FilingJobs } from "./filing-jobs.js";
+import type { AnalysisJobs } from "../analysis/jobs.js";
+import { ProvenanceError, correctFiledMetadata } from "./provenance.js";
 
 type SourceIdentity = { batchId: string; captureId: string };
 
-export function registerImportRoutes(app: FastifyInstance, db: Database.Database, vaults: VaultRegistry): void {
-  let autoRun: Promise<void> | null = null;
-  let rerunRequested = false;
-  let stopped = false;
-  function processAuto(): Promise<void> {
-    if (autoRun) { rerunRequested = true; return autoRun; }
-    autoRun = (async () => {
-      do {
-        rerunRequested = false;
-        const queued = db.prepare(`SELECT i.batch_id, i.capture_id, b.auto_vault_id FROM import_items i
-          JOIN import_batches b ON b.id = i.batch_id WHERE b.auto_vault_id IS NOT NULL
-          AND i.status = 'ready' AND i.disposition = 'active' AND i.auto_file_suppressed = 0 ORDER BY b.rowid, i.rowid`)
-          .all() as { batch_id: string; capture_id: string; auto_vault_id: string }[];
-        for (const item of queued) {
-          try { await fileCapture(db, vaults, item.batch_id, item.capture_id, item.auto_vault_id, { automatic: true }); }
-          catch (error) { if (!(error instanceof FilingError)) console.error("[ocf:import] automatic filing failed", error); }
-        }
-      } while (rerunRequested);
-    })().finally(() => { autoRun = null; });
-    return autoRun;
-  }
-  app.addHook("onReady", async () => { setImmediate(() => { if (!stopped) void processAuto(); }); });
-  app.addHook("preClose", async () => { await processAuto(); stopped = true; });
+export function registerImportRoutes(app: FastifyInstance, db: Database.Database, vaults: VaultRegistry,
+  jobs: FilingJobs, analysisJobs: AnalysisJobs): void {
   app.post("/api/v1/imports/preflight", async (request, reply) => {
     try {
       const file = await request.file();
@@ -41,10 +22,17 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
       const bytes = await file.toBuffer();
       const { candidates, skippedFiles } = parseImportUpload(bytes, file.filename);
       const batch = { batchId: randomUUID(), createdAt: new Date().toISOString(), candidates };
-      const policy = db.prepare("SELECT mode, vault_id FROM import_policy WHERE id = 1")
-        .get() as { mode: string; vault_id: string | null };
-      insertBatch(db, { ...batch, autoVaultId: policy.mode === "auto-file" ? policy.vault_id : null });
-      if (policy.mode === "auto-file") setImmediate(() => { if (!stopped) void processAuto(); });
+      const policy = db.prepare("SELECT mode, vault_id, default_authorship FROM import_policy WHERE id = 1")
+        .get() as { mode: string; vault_id: string | null; default_authorship: "self" | "third_party" | "unknown" };
+      const override = request.headers["x-ocf-authorship"];
+      if (override !== undefined && !["self", "third_party", "unknown"].includes(String(override))) {
+        return reply.code(422).send({ error: "INVALID_AUTHORSHIP" });
+      }
+      insertBatch(db, { ...batch, autoVaultId: policy.mode === "auto-file" ? policy.vault_id : null,
+        defaultAuthorship: override as "self" | "third_party" | "unknown" | undefined ?? policy.default_authorship });
+      if (policy.mode === "auto-file" && policy.vault_id) {
+        for (const candidate of candidates) if (candidate.status === "ready") jobs.enqueue(batch.batchId, candidate.id, policy.vault_id);
+      }
       return reply.code(201).send({ ...getBatch(db, batch.batchId), skippedFiles });
     } catch (error) {
       if (error instanceof ImportError) {
@@ -59,21 +47,34 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
   });
 
   app.get("/api/v1/imports/policy", async () => {
-    const row = db.prepare("SELECT mode, vault_id FROM import_policy WHERE id = 1")
-      .get() as { mode: string; vault_id: string | null };
-    return { mode: row.mode, vaultId: row.vault_id };
+    const row = db.prepare("SELECT mode, vault_id, default_authorship FROM import_policy WHERE id = 1")
+      .get() as { mode: string; vault_id: string | null; default_authorship: string };
+    return { mode: row.mode, vaultId: row.vault_id, defaultAuthorship: row.default_authorship };
   });
 
-  app.put<{ Body: { mode?: unknown; vaultId?: unknown } }>("/api/v1/imports/policy", async (request, reply) => {
-    const { mode, vaultId } = request.body ?? {};
+  app.put<{ Body: { mode?: unknown; vaultId?: unknown; defaultAuthorship?: unknown } }>("/api/v1/imports/policy", async (request, reply) => {
+    const { mode, vaultId, defaultAuthorship } = request.body ?? {};
     if (mode !== "manual" && mode !== "auto-file") return reply.code(422).send({ error: "INVALID_IMPORT_POLICY" });
     if (mode === "auto-file" && (typeof vaultId !== "string" || !vaults.get(vaultId))) {
       return reply.code(422).send({ error: "VAULT_REQUIRED" });
     }
-    db.prepare("UPDATE import_policy SET mode = ?, vault_id = ? WHERE id = 1")
-      .run(mode, mode === "auto-file" ? vaultId : null);
-    return { mode, vaultId: mode === "auto-file" ? vaultId : null };
+    const current = db.prepare("SELECT default_authorship FROM import_policy WHERE id = 1").get() as { default_authorship: string };
+    const authorship = defaultAuthorship ?? current.default_authorship;
+    if (!["self", "third_party", "unknown"].includes(String(authorship))) return reply.code(422).send({ error: "INVALID_AUTHORSHIP" });
+    db.prepare("UPDATE import_policy SET mode = ?, vault_id = ?, default_authorship = ? WHERE id = 1")
+      .run(mode, mode === "auto-file" ? vaultId : null, authorship);
+    return { mode, vaultId: mode === "auto-file" ? vaultId : null, defaultAuthorship: authorship };
   });
+
+  app.patch<{ Params: { batchId: string; captureId: string }; Body: unknown }>(
+    "/api/v1/imports/:batchId/items/:captureId/metadata", async (request, reply) => {
+      try { return await analysisJobs.runMetadataCorrection(() =>
+        correctFiledMetadata(db, vaults, request.params.batchId, request.params.captureId, request.body)); }
+      catch (error) {
+        if (error instanceof ProvenanceError) return reply.code(error.status).send({ error: error.code });
+        throw error;
+      }
+    });
 
   app.get<{ Querystring: { view?: string; page?: string; pageSize?: string; q?: string; status?: string; vaultId?: string; analysis?: string } }>(
     "/api/v1/imports/items", async (request, reply) => {
@@ -119,12 +120,15 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
         LEFT JOIN source_analyses sa ON sa.vault_id = i.vault_id AND sa.fingerprint = i.fingerprint ${where}`;
       const total = (db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...params) as { n: number }).n;
       const rows = db.prepare(`SELECT i.batch_id, i.capture_id, i.payload_json, i.status, i.error_code,
+        i.authorship, i.authorship_overridden, i.author_overridden, i.metadata_version, i.author_evidence_json,
         i.disposition, i.processed_at, i.vault_id, i.snapshot, i.fingerprint, i.analysis_sync_error, b.created_at, b.auto_vault_id,
         COALESCE(ca.status, sa.status) AS analysis_status ${from}
         ORDER BY b.rowid DESC, i.rowid DESC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize) as {
           batch_id: string; capture_id: string; payload_json: string; status: string; error_code: string | null;
           disposition: string; processed_at: string | null; vault_id: string | null; snapshot: string | null;
           fingerprint: string | null; analysis_sync_error: number; created_at: string; auto_vault_id: string | null; analysis_status: string | null;
+          authorship: string; authorship_overridden: number; author_overridden: number; metadata_version: number;
+          author_evidence_json: string | null;
         }[];
       const memberships = (rows.length ? db.prepare(`SELECT batch_id, capture_id, vault_id, snapshot, fingerprint, analysis_sync_error
         FROM import_item_vaults WHERE (batch_id, capture_id) IN (${rows.map(() => "(?, ?)").join(", ")})
@@ -148,12 +152,14 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
           .get(recentCutoff) as { n: number }).n,
         all: (db.prepare("SELECT COUNT(*) AS n FROM import_items WHERE disposition != 'trashed'").get() as { n: number }).n,
         trash: (db.prepare("SELECT COUNT(*) AS n FROM import_items WHERE disposition = 'trashed'").get() as { n: number }).n,
-        autoQueued: (db.prepare(`SELECT COUNT(*) AS n FROM import_items i JOIN import_batches b ON b.id = i.batch_id
-          WHERE b.auto_vault_id IS NOT NULL AND i.status IN ('ready', 'processing')
-          AND i.disposition = 'active' AND i.auto_file_suppressed = 0`).get() as { n: number }).n,
+        autoQueued: (db.prepare(`SELECT COUNT(*) AS n FROM filing_jobs f JOIN import_batches b ON b.id = f.batch_id
+          WHERE b.auto_vault_id = f.vault_id AND f.status IN ('queued','running','retry_wait')`).get() as { n: number }).n,
       };
       return { total, page, pageSize, counts, items: rows.map((row) => ({
         ...JSON.parse(row.payload_json) as object,
+        authorship: row.authorship, authorshipOverridden: !!row.authorship_overridden,
+        authorOverridden: !!row.author_overridden, metadataVersion: row.metadata_version,
+        authorEvidence: row.author_evidence_json ? JSON.parse(row.author_evidence_json) : null,
         batchId: row.batch_id, captureId: row.capture_id, createdAt: row.created_at,
         processedAt: row.processed_at, disposition: row.disposition, status: row.status,
         errorCode: row.error_code, vaultId: row.vault_id, snapshot: row.snapshot, fingerprint: row.fingerprint,
@@ -173,16 +179,16 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
         return reply.code(422).send({ error: "INVALID_IMPORT_ACTION" });
       }
       if (action === "file" && typeof vaultId !== "string") return reply.code(422).send({ error: "VAULT_REQUIRED" });
-      const results: ({ batchId: string; captureId: string; ok: true; vaultId?: string; snapshot?: string | null; analysisSyncError?: boolean } |
+      const results: ({ batchId: string; captureId: string; ok: true; vaultId?: string; jobId?: string } |
         { batchId: string; captureId: string; ok: false; error: string })[] = [];
       for (const item of items as SourceIdentity[]) {
         if (action === "file") {
           try {
-            const filed = await fileCapture(db, vaults, item.batchId, item.captureId, vaultId as string);
-            results.push({ ...item, ok: true, vaultId: filed.vaultId, snapshot: filed.snapshot,
-              analysisSyncError: filed.analysisSyncError });
+            if (!vaults.get(vaultId as string)) throw new Error("VAULT_NOT_FOUND");
+            const job = jobs.enqueue(item.batchId, item.captureId, vaultId as string);
+            results.push({ ...item, ok: true, vaultId: job.vaultId, jobId: job.id });
           } catch (error) {
-            results.push({ ...item, ok: false, error: error instanceof FilingError ? error.code : "VAULT_IMPORT_FAILED" });
+            results.push({ ...item, ok: false, error: error instanceof Error ? error.message : "VAULT_IMPORT_FAILED" });
           }
           continue;
         }
@@ -205,11 +211,14 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
           results.push({ ...item, ok: false, error: "ALREADY_IMPORTED" }); continue;
         }
         const next = action === "restore" ? "active" : action === "shelve" ? "shelved" : "trashed";
-        db.prepare("UPDATE import_items SET disposition = ?, processed_at = ? WHERE batch_id = ? AND capture_id = ?")
-          .run(next, new Date().toISOString(), item.batchId, item.captureId);
+        db.transaction(() => {
+          db.prepare("UPDATE import_items SET disposition = ?, processed_at = ? WHERE batch_id = ? AND capture_id = ?")
+            .run(next, new Date().toISOString(), item.batchId, item.captureId);
+          if (action === "shelve" || action === "trash") jobs.cancelPendingForItem(item.batchId, item.captureId);
+        })();
         results.push({ ...item, ok: true });
       }
-      return { results };
+      return reply.code(action === "file" ? 202 : 200).send({ results });
     },
   );
 
@@ -226,7 +235,6 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
         .get(batchId, captureId) as { status: string; disposition: string } | undefined;
       if (!source) return reply.code(404).send({ error: "SOURCE_NOT_FOUND" });
       if (source.disposition === "trashed") return reply.code(409).send({ error: "SOURCE_TRASHED" });
-      if (source.status === "processing") return reply.code(409).send({ error: "SOURCE_BUSY" });
       const before = db.prepare(`SELECT vault_id FROM import_item_vaults WHERE batch_id = ? AND capture_id = ?`)
         .all(batchId, captureId) as { vault_id: string }[];
       const current = new Set(before.map((entry) => entry.vault_id));
@@ -234,17 +242,18 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
         return reply.code(409).send({ error: "VAULT_ASSOCIATION_IMMUTABLE" });
       }
       const errors: { vaultId: string; error: string }[] = [];
+      const pendingJobs: ReturnType<FilingJobs["enqueue"]>[] = [];
       for (const vaultId of vaultIds as string[]) {
         if (current.has(vaultId)) continue;
-        try { await fileCapture(db, vaults, batchId, captureId, vaultId); }
-        catch (error) { errors.push({ vaultId, error: error instanceof FilingError ? error.code : "VAULT_IMPORT_FAILED" }); }
+        try { pendingJobs.push(jobs.enqueue(batchId, captureId, vaultId)); }
+        catch (error) { errors.push({ vaultId, error: error instanceof Error ? error.message : "VAULT_IMPORT_FAILED" }); }
       }
       const memberships = db.prepare(`SELECT vault_id, snapshot, fingerprint, analysis_sync_error FROM import_item_vaults
         WHERE batch_id = ? AND capture_id = ? ORDER BY created_at, rowid`).all(batchId, captureId) as {
           vault_id: string; snapshot: string; fingerprint: string; analysis_sync_error: number }[];
-      return { vaults: memberships.map((membership) => ({ vaultId: membership.vault_id,
+      return reply.code(202).send({ vaults: memberships.map((membership) => ({ vaultId: membership.vault_id,
         snapshot: membership.snapshot, fingerprint: membership.fingerprint,
-        analysisSyncError: !!membership.analysis_sync_error })), errors };
+        analysisSyncError: !!membership.analysis_sync_error })), jobs: pendingJobs, errors });
     },
   );
 

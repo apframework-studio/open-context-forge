@@ -5,7 +5,7 @@ import { ImportScreen } from "./ImportScreen";
 
 test("source workbench leads with one compact toolbar and processing views", () => {
   const html = renderToStaticMarkup(createElement(ImportScreen, {
-    vaults: { defaultVaultId: "default", vaults: [{ id: "default", path: "/tmp/vault", kind: "built-in", isDefault: true }] },
+    vaults: { defaultVaultId: "default", vaults: [{ id: "default", path: "/tmp/vault", kind: "built-in", isDefault: true, autoMaintain: false }] },
     onImported: () => undefined,
     onCaptureSettings: () => undefined,
   }));

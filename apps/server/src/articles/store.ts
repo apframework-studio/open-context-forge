@@ -24,10 +24,11 @@ export interface ArticleListItem extends ArticleInput {
   stage: "new" | "writing" | "complete" | "pending_publish" | "published";
   updatedAt: string;
   publicationId: string | null;
+  trashedAt: string | null;
 }
 
 export class ArticleError extends Error {
-  constructor(readonly code: "INVALID_ARTICLE" | "SOURCE_NOT_FOUND" | "ARTICLE_NOT_FOUND" | "REVISION_CONFLICT" | "ARTICLE_CHECK_FAILED" | "ARTICLE_METADATA_REQUIRED", readonly statusCode: number) {
+  constructor(readonly code: "INVALID_ARTICLE" | "SOURCE_NOT_FOUND" | "ARTICLE_NOT_FOUND" | "ARTICLE_TRASHED" | "ARTICLE_TRASH_CHANGED" | "ARTICLE_BUSY" | "REVISION_CONFLICT" | "ARTICLE_CHECK_FAILED" | "ARTICLE_METADATA_REQUIRED", readonly statusCode: number) {
     super(code);
   }
 }
@@ -83,8 +84,10 @@ async function atomicWrite(path: string, content: string): Promise<void> {
 export class ArticleStore {
   private readonly root: string;
   private readonly writerRoot: string;
+  private readonly activities = new Map<string, number>();
+  private cleaning: Promise<void> | undefined;
 
-  constructor(private readonly db: Database.Database, dataDir: string, private readonly vaults: VaultRegistry, writerRoot?: string) {
+  constructor(private readonly db: Database.Database, private readonly dataDir: string, private readonly vaults: VaultRegistry, writerRoot?: string) {
     this.root = join(dataDir, "writing-projects");
     this.writerRoot = realpathSync(writerRoot ?? defaultWriterRoot);
     db.exec(`
@@ -93,7 +96,86 @@ export class ArticleStore {
         revision INTEGER NOT NULL,
         status TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS article_deletions (
+        id TEXT PRIMARY KEY, publication_ids TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS retained_publication_worktrees (
+        publication_id TEXT PRIMARY KEY, article_id TEXT NOT NULL, worktree_path TEXT NOT NULL,
+        commit_sha TEXT, status TEXT NOT NULL, public_url TEXT, archived_at TEXT NOT NULL
+      );
     `);
+    const columns = db.pragma("table_info(articles)") as { name: string }[];
+    if (!columns.some((column) => column.name === "trashed_at")) db.exec("ALTER TABLE articles ADD COLUMN trashed_at TEXT");
+  }
+
+  public writerSkillPath(): string { return join(this.writerRoot, "SKILL.md"); }
+
+  async withActivity<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const row = this.db.prepare("SELECT trashed_at FROM articles WHERE id = ?").get(id) as { trashed_at: string | null } | undefined;
+    if (!row) throw new ArticleError("ARTICLE_NOT_FOUND", 404);
+    if (row.trashed_at) throw new ArticleError("ARTICLE_TRASHED", 409);
+    this.activities.set(id, (this.activities.get(id) ?? 0) + 1);
+    try { return await work(); }
+    finally {
+      const remaining = (this.activities.get(id) ?? 1) - 1;
+      if (remaining) this.activities.set(id, remaining); else this.activities.delete(id);
+    }
+  }
+
+  async cleanupDeletedArticles(): Promise<number> {
+    // The durable queue makes an interrupted or failed filesystem cleanup retryable.
+    const task = (this.cleaning ?? Promise.resolve()).then(async () => {
+      const rows = this.db.prepare("SELECT id, publication_ids FROM article_deletions").all() as { id: string; publication_ids: string }[];
+      for (const row of rows) {
+        try {
+          const publicationIds: unknown = JSON.parse(row.publication_ids);
+          if (!Array.isArray(publicationIds) || publicationIds.some((id) => typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))) throw new Error("INVALID_DELETION_PATH");
+          const paths = [this.project(row.id), join(this.dataDir, "agent-workspaces", row.id),
+            ...publicationIds.map((id) => join(this.dataDir, "publications", id))];
+          await Promise.all(paths.map((path) => rm(path, { recursive: true, force: true })));
+          this.db.prepare("DELETE FROM article_deletions WHERE id = ?").run(row.id);
+        } catch (error) {
+          console.error("[article-trash] cleanup_pending", { articleId: row.id, code: error instanceof Error && "code" in error ? error.code : "CLEANUP_FAILED" });
+        }
+      }
+    });
+    this.cleaning = task;
+    try { await task; } finally { if (this.cleaning === task) this.cleaning = undefined; }
+    return (this.db.prepare("SELECT COUNT(*) AS count FROM article_deletions").get() as { count: number }).count;
+  }
+
+  async emptyTrash(confirmed: unknown, items: unknown, isBusy: (id: string) => boolean = () => false): Promise<{ changed: number; cleanupPending: number; retainedWorkspaces: number }> {
+    if (confirmed !== true || !Array.isArray(items) || items.length > 10_000 || items.some((item) => !item ||
+      typeof item.id !== "string" || !/^[0-9a-f-]{36}$/.test(item.id) || !Number.isInteger(item.expectedRevision) || item.expectedRevision < 0 ||
+      typeof item.expectedTrashedAt !== "string" || !item.expectedTrashedAt) || new Set(items.map((item) => item.id)).size !== items.length) {
+      throw new ArticleError("INVALID_ARTICLE", 422);
+    }
+    const result = this.db.transaction(() => {
+      const find = this.db.prepare("SELECT revision, trashed_at FROM articles WHERE id = ?");
+      for (const item of items) {
+        const row = find.get(item.id) as { revision: number; trashed_at: string | null } | undefined;
+        if (!row || !row.trashed_at || row.revision !== item.expectedRevision || row.trashed_at !== item.expectedTrashedAt) throw new ArticleError("ARTICLE_TRASH_CHANGED", 409);
+        if (this.activities.has(item.id) || isBusy(item.id)) throw new ArticleError("ARTICLE_BUSY", 409);
+      }
+      let retainedWorkspaces = 0;
+      for (const item of items) {
+        const publications = this.db.prepare("SELECT id FROM publications WHERE article_id = ?").all(item.id) as { id: string }[];
+        this.db.prepare("INSERT INTO article_deletions (id, publication_ids) VALUES (?, ?)").run(item.id, JSON.stringify(publications.map((item) => item.id)));
+        // A Git checkout may contain unpushed work; retain it and its ownership independently of the deleted article.
+        retainedWorkspaces += this.db.prepare(`INSERT INTO retained_publication_worktrees
+          (publication_id, article_id, worktree_path, commit_sha, status, public_url, archived_at)
+          SELECT id, article_id, worktree_path, commit_sha, status, public_url, ? FROM publications
+          WHERE article_id = ? AND worktree_path IS NOT NULL`).run(new Date().toISOString(), item.id).changes;
+        this.db.prepare("DELETE FROM agent_run_events WHERE run_id IN (SELECT id FROM agent_runs WHERE article_id = ?)").run(item.id);
+        this.db.prepare("DELETE FROM agent_runs WHERE article_id = ?").run(item.id);
+        this.db.prepare("DELETE FROM agent_messages WHERE conversation_id IN (SELECT id FROM agent_conversations WHERE article_id = ?)").run(item.id);
+        this.db.prepare("DELETE FROM agent_conversations WHERE article_id = ?").run(item.id);
+        this.db.prepare("DELETE FROM publications WHERE article_id = ?").run(item.id);
+        this.db.prepare("DELETE FROM articles WHERE id = ?").run(item.id);
+      }
+      return { changed: items.length, retainedWorkspaces };
+    })();
+    return { ...result, cleanupPending: await this.cleanupDeletedArticles() };
   }
 
   private project(id: string): string {
@@ -138,22 +220,23 @@ export class ArticleStore {
     }
   }
 
-  async get(id: string): Promise<ArticleState> {
-    const row = this.db.prepare("SELECT revision, status FROM articles WHERE id = ?").get(id) as { revision: number; status: "draft" | "final" } | undefined;
+  async get(id: string, includeTrashed = false): Promise<ArticleState> {
+    const row = this.db.prepare("SELECT revision, status, trashed_at FROM articles WHERE id = ?").get(id) as { revision: number; status: "draft" | "final"; trashed_at: string | null } | undefined;
     if (!row) throw new ArticleError("ARTICLE_NOT_FOUND", 404);
+    if (row.trashed_at && !includeTrashed) throw new ArticleError("ARTICLE_TRASHED", 409);
     const project = this.project(id);
     const input = JSON.parse(await readFile(join(project, "project.json"), "utf8")) as ArticleInput;
     const markdown = bodyOf(await readFile(join(project, "article.md"), "utf8"));
     return { id, revision: row.revision, status: row.status, markdown, ...input, sourceRef: input.sourceRef ?? null };
   }
 
-  async list(): Promise<ArticleListItem[]> {
-    const rows = this.db.prepare("SELECT id, revision, status FROM articles ORDER BY rowid DESC")
-      .all() as { id: string; revision: number; status: ArticleState["status"] }[];
+  async list(includeTrashed = false): Promise<ArticleListItem[]> {
+    const rows = this.db.prepare(`SELECT id, revision, status, trashed_at FROM articles ${includeTrashed ? "" : "WHERE trashed_at IS NULL"} ORDER BY rowid DESC`)
+      .all() as { id: string; revision: number; status: ArticleState["status"]; trashed_at: string | null }[];
     const publicationRows = this.db.prepare("SELECT id, article_id, revision, status FROM publications ORDER BY rowid DESC")
       .all() as { id: string; article_id: string; revision: number; status: string }[];
     const items = await Promise.all(rows.map(async (row) => {
-      const article = await this.get(row.id);
+      const article = await this.get(row.id, true);
       const updatedAt = (await stat(join(this.project(row.id), "article.md"))).mtime.toISOString();
       const current = publicationRows.filter((publication) => publication.article_id === row.id && publication.revision === row.revision);
       const publication = current.find((item) => item.status === "live") ??
@@ -163,9 +246,33 @@ export class ArticleStore {
           publication ? "pending_publish" : "complete";
       return { id: row.id, title: article.title, summary: article.summary, date: article.date,
         sourceRef: article.sourceRef, revision: row.revision, status: row.status,
-        stage, updatedAt, publicationId: publication?.id ?? null };
+        stage, updatedAt, publicationId: publication?.id ?? null, trashedAt: row.trashed_at };
     }));
     return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  manage(action: unknown, items: unknown): { changed: number } {
+    if ((action !== "trash" && action !== "restore") || !Array.isArray(items) || !items.length || items.length > 1_000 ||
+      items.some((item) => !item || typeof item.id !== "string" || !Number.isInteger(item.expectedRevision) || item.expectedRevision < 0) ||
+      new Set(items.map((item) => item.id)).size !== items.length) throw new ArticleError("INVALID_ARTICLE", 422);
+    return this.db.transaction(() => {
+      const find = this.db.prepare("SELECT revision, trashed_at FROM articles WHERE id = ?");
+      const selected = items.map((item) => {
+        this.project(item.id);
+        const row = find.get(item.id) as { revision: number; trashed_at: string | null } | undefined;
+        if (!row) throw new ArticleError("ARTICLE_NOT_FOUND", 404);
+        if (row.revision !== item.expectedRevision) throw new ArticleError("REVISION_CONFLICT", 409);
+        return { id: item.id, trashed: !!row.trashed_at };
+      });
+      const update = this.db.prepare("UPDATE articles SET trashed_at = ? WHERE id = ?");
+      const timestamp = new Date().toISOString();
+      let changed = 0;
+      for (const item of selected) {
+        if (item.trashed === (action === "trash")) continue;
+        update.run(action === "trash" ? timestamp : null, item.id); changed++;
+      }
+      return { changed };
+    })();
   }
 
   async readAsset(id: string, path: unknown): Promise<Buffer> {
@@ -205,6 +312,10 @@ export class ArticleStore {
   }
 
   async saveDraft(id: string, patch: ArticleDraftInput, expectedRevision: unknown): Promise<ArticleState> {
+    return this.withActivity(id, () => this.saveDraftContent(id, patch, expectedRevision));
+  }
+
+  private async saveDraftContent(id: string, patch: ArticleDraftInput, expectedRevision: unknown): Promise<ArticleState> {
     const state = await this.get(id);
     if (state.revision !== expectedRevision) throw new ArticleError("REVISION_CONFLICT", 409);
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new ArticleError("INVALID_ARTICLE", 422);
@@ -221,6 +332,10 @@ export class ArticleStore {
   }
 
   async finalize(id: string, expectedRevision: unknown): Promise<ArticleState> {
+    return this.withActivity(id, () => this.finalizeContent(id, expectedRevision));
+  }
+
+  private async finalizeContent(id: string, expectedRevision: unknown): Promise<ArticleState> {
     const state = await this.get(id);
     if (state.revision !== expectedRevision) throw new ArticleError("REVISION_CONFLICT", 409);
     if (state.status === "final") return state;

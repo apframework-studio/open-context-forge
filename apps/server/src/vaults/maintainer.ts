@@ -21,7 +21,6 @@ export function renderCaptureMarkdown(candidate: CaptureCandidate): string {
     "",
     candidate.originalUrl ? `- 来源：${candidate.originalUrl}` : `- 本地文件：${oneLine(candidate.sourceFilename ?? "未命名文件")}`,
     `- ${candidate.originalUrl ? "抓取" : "导入"}时间：${candidate.capturedAt}`,
-    ...(candidate.author ? [`- 作者：${oneLine(candidate.author)}`] : []),
     ...(candidate.note ? [`- 备注：${oneLine(candidate.note)}`] : []),
     `- ${candidate.originalUrl ? "Clipper " : ""}内容指纹：${candidate.contentHash}`,
     "",
@@ -42,7 +41,7 @@ export async function importSnapshot(candidate: CaptureCandidate, vaultPath: str
     await writeFile(temporaryMarkdown, metadata, { flag: "wx" });
     const args = [join(maintainerRoot, "scripts", "import-markdown.js"),
       "--vault", vaultPath, "--file", temporaryMarkdown,
-      "--authorship", candidate.originalUrl ? "third_party" : "unknown", "--json"];
+      "--authorship", candidate.authorship ?? "unknown", "--json"];
     if (candidate.originalUrl) args.push("--url", candidate.originalUrl);
     if (candidate.author) args.push("--author", candidate.author);
     const result = await runTool(process.execPath, args, { cwd: maintainerRoot, timeoutMs: 60_000 });

@@ -9,6 +9,7 @@ export interface Vault {
   path: string;
   kind: "built-in" | "external";
   isDefault: boolean;
+  autoMaintain: boolean;
 }
 
 export class VaultError extends Error {
@@ -53,9 +54,12 @@ export class VaultRegistry {
         id TEXT PRIMARY KEY,
         real_path TEXT NOT NULL UNIQUE,
         kind TEXT NOT NULL,
-        is_default INTEGER NOT NULL DEFAULT 0
+        is_default INTEGER NOT NULL DEFAULT 0,
+        auto_maintain INTEGER NOT NULL DEFAULT 0
       );
     `);
+    const columns = new Set((db.pragma("table_info(vaults)") as { name: string }[]).map((column) => column.name));
+    if (!columns.has("auto_maintain")) db.exec("ALTER TABLE vaults ADD COLUMN auto_maintain INTEGER NOT NULL DEFAULT 0");
   }
 
   private async call(script: string, args: string[]) {
@@ -77,14 +81,28 @@ export class VaultRegistry {
   }
 
   list(): { defaultVaultId: string; vaults: Vault[] } {
-    const rows = this.db.prepare("SELECT id, real_path, kind, is_default FROM vaults ORDER BY CASE WHEN kind = 'built-in' THEN 0 ELSE 1 END, id")
-      .all() as { id: string; real_path: string; kind: "built-in" | "external"; is_default: number }[];
-    const vaults = rows.map((row) => ({ id: row.id, path: row.real_path, kind: row.kind, isDefault: !!row.is_default }));
+    const rows = this.db.prepare("SELECT id, real_path, kind, is_default, auto_maintain FROM vaults ORDER BY CASE WHEN kind = 'built-in' THEN 0 ELSE 1 END, id")
+      .all() as { id: string; real_path: string; kind: "built-in" | "external"; is_default: number; auto_maintain: number }[];
+    const vaults = rows.map((row) => ({ id: row.id, path: row.real_path, kind: row.kind, isDefault: !!row.is_default,
+      autoMaintain: !!row.auto_maintain }));
     return { defaultVaultId: vaults.find((vault) => vault.isDefault)?.id ?? "default", vaults };
   }
 
   get(id: string): Vault | undefined {
     return this.list().vaults.find((vault) => vault.id === id);
+  }
+
+  maintenancePolicy(id: string): { enabled: boolean } {
+    const vault = this.get(id);
+    if (!vault) throw new VaultError("VAULT_NOT_FOUND", 404);
+    return { enabled: vault.autoMaintain };
+  }
+
+  setMaintenancePolicy(id: string, enabled: unknown): { enabled: boolean } {
+    if (typeof enabled !== "boolean") throw new VaultError("INVALID_VAULT", 422);
+    if (!this.get(id)) throw new VaultError("VAULT_NOT_FOUND", 404);
+    this.db.prepare("UPDATE vaults SET auto_maintain = ? WHERE id = ?").run(enabled ? 1 : 0, id);
+    return { enabled };
   }
 
   async addExternal(id: unknown, path: unknown, adopt: unknown): Promise<Vault> {

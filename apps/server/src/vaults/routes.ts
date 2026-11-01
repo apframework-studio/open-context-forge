@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileCapture, FilingError } from "../import/filing.js";
+import type { AnalysisJobs } from "../analysis/jobs.js";
 import { VaultError, VaultRegistry } from "./registry.js";
 
 function errorReply(error: unknown) {
@@ -11,8 +11,16 @@ function errorReply(error: unknown) {
   return undefined;
 }
 
-export function registerVaultRoutes(app: FastifyInstance, db: Database.Database, registry: VaultRegistry): void {
+export function registerVaultRoutes(app: FastifyInstance, db: Database.Database, registry: VaultRegistry, jobs?: AnalysisJobs): void {
   app.get("/api/v1/vaults", async () => registry.list());
+  app.get<{ Params: { id: string } }>("/api/v1/vaults/:id/maintenance-policy", async (request, reply) => {
+    try { return registry.maintenancePolicy(request.params.id); }
+    catch (error) { const result = errorReply(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
+  app.put<{ Params: { id: string }; Body: { enabled?: unknown } }>("/api/v1/vaults/:id/maintenance-policy", async (request, reply) => {
+    try { return registry.setMaintenancePolicy(request.params.id, request.body?.enabled); }
+    catch (error) { const result = errorReply(error); if (result) return reply.code(result.status).send(result.body); throw error; }
+  });
 
   async function sourceIndex(vaultId: string) {
     const vault = registry.get(vaultId);
@@ -105,17 +113,4 @@ export function registerVaultRoutes(app: FastifyInstance, db: Database.Database,
     }
   });
 
-  app.post<{ Params: { batchId: string; captureId: string }; Body: { vaultId?: unknown } }>(
-    "/api/v1/imports/:batchId/items/:captureId/commit", async (request, reply) => {
-      const { batchId, captureId } = request.params;
-      const vaultId = request.body?.vaultId;
-      if (typeof vaultId !== "string") return reply.code(422).send({ error: "VAULT_REQUIRED" });
-      try {
-        return await fileCapture(db, registry, batchId, captureId, vaultId);
-      } catch (error) {
-        if (error instanceof FilingError) return reply.code(error.status).send({ error: error.code });
-        throw error;
-      }
-    },
-  );
 }

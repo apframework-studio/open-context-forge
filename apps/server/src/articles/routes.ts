@@ -7,7 +7,15 @@ function handle(error: unknown) {
   return undefined;
 }
 
-export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore): void {
+export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore, isBusy?: (id: string) => boolean): void {
+  app.post<{ Body: { confirmed?: unknown; items?: unknown } }>("/api/v1/articles/trash/empty", { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
+    try { return await store.emptyTrash(request.body?.confirmed, request.body?.items, isBusy); }
+    catch (error) {
+      const result = handle(error);
+      if (result) return reply.code(result.status).send(result.body);
+      throw error;
+    }
+  });
   app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/api/v1/articles/:id/asset", async (request, reply) => {
     try {
       const bytes = await store.readAsset(request.params.id, request.query.path);
@@ -21,7 +29,16 @@ export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore)
     }
   });
 
-  app.get("/api/v1/articles", async () => ({ items: await store.list() }));
+  app.get<{ Querystring: { includeTrashed?: string } }>("/api/v1/articles", async (request) => ({ items: await store.list(request.query.includeTrashed === "true") }));
+
+  app.post<{ Body: { action?: unknown; items?: unknown } }>("/api/v1/articles/actions", async (request, reply) => {
+    try { return store.manage(request.body?.action, request.body?.items); }
+    catch (error) {
+      const result = handle(error);
+      if (result) return reply.code(result.status).send(result.body);
+      throw error;
+    }
+  });
 
   app.post<{ Body: ArticleCreateInput }>("/api/v1/articles", async (request, reply) => {
     try {

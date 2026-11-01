@@ -125,6 +125,10 @@ export class PublicationStore {
   }
 
   async prepare(articleId: string, slug: unknown): Promise<{ publication: Publication; created: boolean }> {
+    return this.articles.withActivity(articleId, () => this.preparePackage(articleId, slug));
+  }
+
+  private async preparePackage(articleId: string, slug: unknown): Promise<{ publication: Publication; created: boolean }> {
     if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
       throw new PublicationError("INVALID_SLUG", 422);
     }

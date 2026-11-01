@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { fixtureZipFor } from "./fixtures";
 
+test.beforeEach(async ({ request }) => {
+  const port = process.env.OCF_E2E_SERVER_PORT;
+  const response = await request.put(`http://127.0.0.1:${port}/api/v1/imports/policy`, {
+    headers: { "x-ocf-client": "1" }, data: { mode: "manual" },
+  });
+  expect(response.ok()).toBe(true);
+});
+
 test("source row shows compact origin, opens body, and adds vault membership", async ({ page }) => {
   const id = `multi-ui-${randomUUID().slice(0, 8)}`;
   const title = `多库资料 ${id}`;
@@ -13,15 +21,16 @@ test("source row shows compact origin, opens body, and adds vault membership", a
   await expect(row.getByRole("link", { name: "原文链接" })).toHaveAttribute("href", `https://example.org/${id}`);
   await expect(row.locator(".source-origin span")).toHaveText("example.org");
   await expect(row.locator(".source-analysis-state")).toHaveClass(/tag/);
-  await expect(row.getByRole("button", { name: "生成分析卡" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "生成智能摘要" })).toBeVisible();
   await row.getByRole("button", { name: title }).click();
   await expect(row.getByRole("region", { name: `${title} 资料正文` })).toContainText(title);
   await expect(row.getByText("查看资料正文")).toHaveCount(0);
   await expect(row.getByLabel(`入库目标 ${title}`)).toHaveCount(0);
   await row.getByRole("button", { name: "入库" }).click();
   const dialog = page.getByRole("dialog", { name: "添加到知识库" });
-  await expect(dialog.getByRole("checkbox")).toHaveCount(1);
-  await dialog.getByRole("checkbox").check();
+  const defaultVault = dialog.getByRole("checkbox", { name: /default/ });
+  await expect(defaultVault).toBeVisible();
+  await defaultVault.check();
   await dialog.getByRole("button", { name: "确认入库" }).click();
   await expect(dialog).toHaveCount(0);
   await page.getByRole("tab", { name: /全部资料/ }).click();
@@ -29,8 +38,8 @@ test("source row shows compact origin, opens body, and adds vault membership", a
   await expect(filed.locator(".tag.success")).toContainText("已入库");
   await filed.getByRole("button", { name: "追加" }).click();
   const filedDialog = page.getByRole("dialog", { name: "添加到知识库" });
-  await expect(filedDialog.getByRole("checkbox")).toBeChecked();
-  await expect(filedDialog.getByRole("checkbox")).toBeDisabled();
+  await expect(filedDialog.getByRole("checkbox", { name: /default/ })).toBeChecked();
+  await expect(filedDialog.getByRole("checkbox", { name: /default/ })).toBeDisabled();
   await expect(filedDialog).toContainText("后续删除将在知识库中统一处理文件和索引");
   await expect(filedDialog.getByRole("button", { name: "确认入库" })).toBeDisabled();
 });
@@ -79,15 +88,16 @@ test("analysis remains a background job and its completed card reappears after n
   await page.getByRole("button", { name: "导入资料" }).click();
   await page.getByLabel("选择文件").setInputFiles({ name: "clipper.zip", mimeType: "application/zip",
     buffer: fixtureZipFor("background-analysis", "后台分析资料") });
-  await page.getByRole("button", { name: "后台分析资料" }).click();
-  await page.getByRole("button", { name: "生成分析卡" }).click();
+  const analyzedRow = page.locator(".source-row").filter({ hasText: "后台分析资料" });
+  await analyzedRow.getByRole("button", { name: "后台分析资料" }).click();
+  await analyzedRow.getByRole("button", { name: "生成智能摘要" }).click();
   await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("未分析");
   await page.getByRole("button", { name: "知识库", exact: true }).click();
   await page.getByRole("button", { name: /资料与分析/ }).click();
   await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("未分析");
   job!.status = "completed";
   analyzedEver = true;
-  const card = page.getByLabel("后台分析资料 来源分析卡");
+  const card = page.getByLabel("后台分析资料 智能摘要");
   await expect(card).toContainText("后台分析完成的摘要", { timeout: 7000 });
   await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("已分析");
   const detail = page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-detail");
@@ -100,14 +110,14 @@ test("analysis remains a background job and its completed card reappears after n
   expect(originalBox!.width).toBeGreaterThan(cardBox!.width);
   await page.setViewportSize({ width: 900, height: 900 });
   await expect(detail.getByRole("tab", { name: "资料正文" })).toBeVisible();
-  await detail.getByRole("tab", { name: "来源分析卡" }).click();
+  await detail.getByRole("tab", { name: "智能摘要" }).click();
   await expect(original).toBeHidden();
   await expect(card).toBeVisible();
   await detail.getByRole("tab", { name: "资料正文" }).click();
   await expect(original).toBeVisible();
   await expect(card).toBeHidden();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(card.getByRole("button", { name: "确认分析卡" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "确认智能摘要" })).toHaveCount(0);
   await card.getByRole("button", { name: "重新分析" }).click();
   await expect(card).toContainText("后台分析完成的摘要");
   job!.status = "failed"; job!.errorCode = "UNEXPECTED_ERROR";
@@ -302,7 +312,6 @@ test("source status filter opens a styled menu without clipping and supports key
   await status.click();
   const options = page.getByRole("listbox", { name: "资料状态选项" });
   await expect(options).toBeVisible();
-  await page.screenshot({ path: "/private/tmp/ocf-select-preview.png" });
   const menuBox = await options.boundingBox();
   expect(triggerBox).not.toBeNull();
   expect(menuBox).not.toBeNull();
