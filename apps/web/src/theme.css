@@ -851,6 +851,8 @@ h1, .section-heading h2 { color: var(--ocf-text); }
 .article-save-line { display: flex; flex: 0 1 150px; align-items: center; gap: 8px; min-width: 0; color: var(--ocf-muted); font-size: 10px; }
 .article-save-line > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .article-save-line > span:last-child { flex: 0 0 auto; white-space: nowrap; }
+.article-finalize-guide { display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--ocf-border); border-radius: 8px; background: var(--ocf-subtle); color: var(--ocf-secondary); font-size: 12px; }
+.article-finalize-guide .text-button { flex: 0 0 auto; margin-left: auto; }
 .article-mobile-tabs { display: none; }
 .article-writing-layout { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; }
 .article-writing-layout.mode-read, .article-writing-layout.focus-chat { grid-template-columns: minmax(0, 1fr); }
@@ -987,6 +989,7 @@ h1, .section-heading h2 { color: var(--ocf-text); }
   .article-mode-switch { order: 3; }
   .article-studio-actions { order: 4; gap: 4px; }
   .article-studio-actions .text-button, .article-studio-actions .secondary-button, .article-studio-actions .primary-button { padding: 7px; font-size: 10px; }
+  .article-finalize-guide { flex-wrap: wrap; }
   .article-mode-switch button { padding: 6px 8px; font-size: 10px; }
   .article-chat-header { padding-inline: 12px; }
   .article-chat-messages { padding: 18px 16px 10px; }

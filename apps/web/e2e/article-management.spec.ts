@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
-test("article list opens publication for the selected article and supports recoverable batch deletion without layout movement", async ({ page }) => {
+test("article list keeps drafts in writing and supports recoverable batch deletion without layout movement", async ({ page }) => {
   const prefix = `管理-${randomUUID().slice(0, 8)}`;
   const created: { id: string; expectedRevision: number }[] = [];
   for (const suffix of ["A", "B"]) {
@@ -16,11 +16,9 @@ test("article list opens publication for the selected article and supports recov
   await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
   const rows = page.locator(".article-list-item");
   await expect(rows).toHaveCount(2);
-  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "发布", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "博客发布准备" })).toBeVisible();
-  await expect(page.locator(".screen-stack")).toContainText(`${prefix}-A`);
-  await expect(page.getByRole("button", { name: "生成本地发布包" })).toBeDisabled();
-  await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  await rows.filter({ hasText: `${prefix}-A` }).getByRole("button", { name: "继续写作" }).click();
+  await expect(page.getByRole("textbox", { name: "文章标题" })).toHaveValue(new RegExp(`${prefix}-A`));
+  await page.getByRole("button", { name: "返回文章列表" }).click();
   await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
   const first = rows.filter({ hasText: `${prefix}-A` });
   await first.getByRole("button", { name: "删除", exact: true }).click();
@@ -38,9 +36,10 @@ test("article list opens publication for the selected article and supports recov
   await bulk.getByRole("button", { name: "批量删除" }).click();
   await dialog.getByRole("button", { name: "移入回收站" }).click();
   await expect(rows).toHaveCount(0);
-  await page.getByRole("button", { name: /预览与发布/ }).click();
-  await expect(page.getByRole("heading", { name: "文章定稿后即可预览渠道效果" })).toBeVisible();
+  await page.getByRole("button", { name: "发布中心", exact: true }).click();
+  await expect(page.getByText("暂无已定稿文章。")).toBeVisible();
   await page.getByRole("button", { name: "文章工作台", exact: true }).click();
+  if (await page.getByRole("button", { name: "返回文章列表" }).count()) await page.getByRole("button", { name: "返回文章列表" }).click();
   await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
   await page.getByRole("tab", { name: /回收站/ }).click();
   await expect(rows).toHaveCount(2);
@@ -50,7 +49,7 @@ test("article list opens publication for the selected article and supports recov
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(`${prefix}-A`);
   await page.setViewportSize({ width: 375, height: 812 });
-  await expect(rows.first().getByRole("button", { name: "发布", exact: true })).toBeVisible();
+  await expect(rows.first().getByRole("button", { name: "继续写作" })).toBeVisible();
   await rows.first().getByRole("checkbox").check();
   await expect(bulk).toBeVisible();
   const mobileBar = (await bulk.boundingBox())!;

@@ -7,14 +7,14 @@ import { ImportScreen } from "./screens/ImportScreen";
 import { VaultScreen } from "./screens/VaultScreen";
 import { VaultSettingsScreen } from "./screens/VaultSettingsScreen";
 import { ArticleScreen } from "./screens/ArticleScreen";
-import { PublishScreen } from "./screens/PublishScreen";
+import { PublishCenterScreen } from "./screens/PublishCenterScreen";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 
 const areas: { name: WorkspaceArea; number: string; icon: "sources" | "vault" | "article" | "publish"; description: string }[] = [
   { name: "资料与分析", number: "01", icon: "sources", description: "导入资料、检查来源，形成可回查的分析。" },
   { name: "知识库", number: "02", icon: "vault", description: "浏览来源与原有笔记，搜索内容并探索真实链接。" },
   { name: "文章工作台", number: "02", icon: "article", description: "围绕证据与智能体讨论，起草、修订并定稿文章。" },
-  { name: "预览与发布", number: "03", icon: "publish", description: "本地检查渠道效果，再确认发布。" }
+  { name: "发布中心", number: "03", icon: "publish", description: "为定稿文章准备渠道内容，管理共享图片与发布进度。" }
 ];
 
 function layoutPreference(key: string): boolean {
@@ -32,8 +32,9 @@ function localDate() {
 
 function readRoute() {
   const [route, id] = window.location.hash.slice(1).split("/");
-  const routeAreas: Record<string, WorkspaceArea> = { sources: "资料与分析", articles: "文章工作台", publish: "预览与发布", knowledge: "知识库" };
-  return { area: routeAreas[route] ?? "资料与分析", articleId: route === "articles" && id ? decodeURIComponent(id) : null };
+  const routeAreas: Record<string, WorkspaceArea> = { sources: "资料与分析", articles: "文章工作台", publish: "发布中心", knowledge: "知识库" };
+  return { area: routeAreas[route] ?? "资料与分析", articleId: route === "articles" && id ? decodeURIComponent(id) : null,
+    publishArticleId: route === "publish" && id ? decodeURIComponent(id) : null };
 }
 
 export function App() {
@@ -44,6 +45,7 @@ export function App() {
   const [branding, setBranding] = useState<BrandingStatus>({ customized: false, revision: null });
   const [sourceRef, setSourceRef] = useState<SourceRef | null>(() => { try { return JSON.parse(localStorage.getItem("ocf-last-source") ?? "null"); } catch { return null; } });
   const [articleId, setArticleId] = useState<string | null>(() => initialRoute.articleId ?? localStorage.getItem("ocf-last-article"));
+  const [publishFocusId, setPublishFocusId] = useState<string | null>(initialRoute.publishArticleId);
   const [publicationId, setPublicationId] = useState<string | null>(() => localStorage.getItem("ocf-last-publication"));
   const [loadError, setLoadError] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(() => layoutPreference("ocf-nav-collapsed"));
@@ -57,7 +59,8 @@ export function App() {
 
   function navigate(area: WorkspaceArea | "设置") {
     setArea(area);
-    const routes: Partial<Record<WorkspaceArea, string>> = { "资料与分析": "sources", "文章工作台": "articles", "预览与发布": "publish", "知识库": "knowledge" };
+    if (area === "发布中心") setPublishFocusId(null);
+    const routes: Partial<Record<WorkspaceArea, string>> = { "资料与分析": "sources", "文章工作台": "articles", "发布中心": "publish", "知识库": "knowledge" };
     const route = area === "设置" ? "settings" : routes[area] ?? "settings";
     const hash = area === "文章工作台" && articleId ? `#articles/${encodeURIComponent(articleId)}` : `#${route}`;
     if (window.location.hash !== hash) window.history.pushState(null, "", hash);
@@ -67,6 +70,7 @@ export function App() {
     const syncRoute = () => {
       const route = readRoute();
       setArea(route.area);
+      setPublishFocusId(route.publishArticleId);
       if (route.articleId) {
         setArticleId(route.articleId);
         localStorage.setItem("ocf-last-article", route.articleId);
@@ -81,10 +85,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const route = area === "文章工作台" ? "articles" : area === "预览与发布" ? "publish" : area === "知识库" ? "knowledge" : area === "资料与分析" ? "sources" : "settings";
-    const hash = area === "文章工作台" && articleId ? `#articles/${encodeURIComponent(articleId)}` : `#${route}`;
+    const route = area === "文章工作台" ? "articles" : area === "发布中心" ? "publish" : area === "知识库" ? "knowledge" : area === "资料与分析" ? "sources" : "settings";
+    const hash = area === "文章工作台" && articleId ? `#articles/${encodeURIComponent(articleId)}` :
+      area === "发布中心" && publishFocusId ? `#publish/${encodeURIComponent(publishFocusId)}` : `#${route}`;
     if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
-  }, [area, articleId]);
+  }, [area, articleId, publishFocusId]);
 
   async function refreshVaults() {
     try { setVaults(await api<VaultList>("/vaults")); setLoadError(""); }
@@ -255,9 +260,12 @@ export function App() {
             branding={branding} iconUrl={iconUrl} onBrandingChange={setBranding} />}
           {area === "文章工作台" && <ArticleScreen sourceRef={sourceRef} articleId={articleId} vaults={vaults} onArticle={selectedArticle}
             onOpenSources={() => navigate("资料与分析")} onArticlesRemoved={articlesRemoved}
-            onOpenPublish={(item) => { selectedArticle(item.id, item.publicationId); navigate("预览与发布"); }} />}
-          {area === "预览与发布" && <PublishScreen articleId={articleId} publicationId={publicationId} onPublication={selectedPublication}
-            onOpenArticles={() => navigate("文章工作台")} />}
+            onOpenPublish={(id, existingPublicationId) => { selectedArticle(id, existingPublicationId); setPublishFocusId(id); setArea("发布中心"); }} />}
+          {area === "发布中心" && <PublishCenterScreen focusArticleId={publishFocusId} publicationId={publicationId}
+            onFocusChange={setPublishFocusId} onPublication={selectedPublication} onOpenArticles={(id) => {
+              if (id) { selectedArticle(id); setArea("文章工作台"); }
+              else navigate("文章工作台");
+            }} />}
         </div>
       </main>
     </div>

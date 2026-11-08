@@ -170,7 +170,8 @@ test("context writes are atomic across invalid batches and concurrent optimistic
     ]);
     expect(results.map(r => r.status).sort()).toEqual(["fulfilled", "rejected"]);
     const context = await f.store.get(f.id);
-    expect(context.revision).toBe(2); expect(context.materials.map(m => m.id)).toEqual(["S1", "S2"]);
+    expect(context.revision).toBe(2);
+    expect(context.materials.map(m => m.id)).toEqual(results[0].status === "fulfilled" ? ["S1", "S2"] : []);
     const restarted = new WritingContextStore(f.db, f.dataDir, f.vaults, f.articles, f.knowledge);
     expect(await restarted.get(f.id)).toEqual(context);
   } finally { await f.close(); }

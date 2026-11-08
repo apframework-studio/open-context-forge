@@ -106,6 +106,33 @@ export interface Publication {
   articlePath: string; sourceSha256: string; assets: string[]; mdx: string;
   errorCode?: string; commitSha?: string; publicUrl?: string;
 }
+export type PublishChannelId = "weibo" | "jike";
+export interface ChannelPublication {
+  id: string; articleId: string; channelId: PublishChannelId; sourceRevision: number;
+  publishedAt: string; url: string | null; current: boolean;
+}
+export interface PublishChannelDraft {
+  articleId: string; channelId: PublishChannelId; revision: number; sourceRevision: number;
+  status: "draft" | "ready"; content: Record<string, string>;
+  assetIds: string[]; updatedAt: string; stale: boolean; lastPublication: ChannelPublication | null;
+}
+export interface PublishAsset {
+  id: string; articleId: string; group: "vertical" | "article"; name: string;
+  mime: "image/png" | "image/jpeg" | "image/webp"; origin: "upload" | "generated";
+  generation?: { provider: string; prompt: string; model: string; aspectRatio: string; sourceRevision: number };
+  createdAt: string; usedBy: PublishChannelId[];
+}
+export interface ImageGenerationSettings {
+  provider: "gemini"; configured: boolean; models: { id: string; label: string }[];
+  providers: { id: "gemini" | "openai" | "volcengine" | "aliyun"; label: string; configured: boolean; models: { id: string; label: string; custom?: boolean }[] }[];
+  aliyunRegion: "cn-beijing" | "ap-southeast-1";
+  openaiBaseUrl: string;
+}
+export interface PublishCenterSummary {
+  channels: { id: PublishChannelId; label: string }[];
+  items: { id: string; title: string; summary: string; revision: number; updatedAt: string;
+    channels: Record<PublishChannelId, { status: "unplanned" | "draft" | "ready" | "published"; stale: boolean }> }[];
+}
 export interface AgentProfile { id: string; label: string; description: string; available: boolean; reason?: string; protocol?: string; capabilities?: string[] }
 export interface AgentMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; context?: WritingTurnContext }
 export interface AgentRun {
@@ -146,6 +173,21 @@ const errorMessages: Record<string, string> = {
   WRITING_CONTEXT_TOO_LARGE: "引用资料过多或文件过大，请缩小本轮资料范围",
   INVALID_WRITING_OUTLINE: "大纲内容无效，请填写内容后再确认",
   ARTICLE_NOT_FINAL: "请先定稿文章",
+  INVALID_CHANNEL: "该发布渠道暂不可用",
+  INVALID_DRAFT: "渠道稿内容有误，请检查正文和状态",
+  DRAFT_NOT_FOUND: "这个渠道还没有准备稿件",
+  INVALID_ASSET: "图片无效，请使用 20 MiB 以内的 PNG、JPEG 或 WebP",
+  ASSET_NOT_FOUND: "图片已不存在，请刷新素材列表",
+  INVALID_IMAGE_SETTINGS: "图像服务 Key 无效，请检查后重新保存",
+  INVALID_IMAGE_MODEL: "模型 ID 无效、已在内置列表中，或自定义模型数量已达上限",
+  INVALID_IMAGE_REQUEST: "请检查图片提示词、模型和画幅",
+  IMAGE_KEY_MISSING: "请先配置所选图像服务的 API Key",
+  IMAGE_AUTH_FAILED: "图像服务 API Key 无效或没有该模型的使用权限",
+  IMAGE_GENERATION_FAILED: "图片生成服务暂时失败，请稍后重试",
+  IMAGE_RESPONSE_INVALID: "图片生成服务没有返回可用图片",
+  INVALID_PUBLICATION: "发布链接无效，请填写 https:// 开头的链接或留空",
+  DRAFT_NOT_READY: "请先保存渠道稿并核对最新文章修订",
+  CHANNEL_REVISION_CONFLICT: "渠道稿已在其他窗口更新；请核对后重新载入",
   PUBLISHER_FAILED: "本地发布包生成失败，请检查文章与图片",
   BLOG_NOT_CONFIGURED: "尚未配置 apframework 博客仓库路径",
   BLOG_BUILD_FAILED: "博客隔离构建失败，远端仓库未推送",

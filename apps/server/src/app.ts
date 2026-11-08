@@ -8,6 +8,9 @@ import { ArticleStore } from "./articles/store.js";
 import { registerArticleRoutes } from "./articles/routes.js";
 import { PublicationStore } from "./publishing/publisher.js";
 import { registerPublicationRoutes } from "./publishing/routes.js";
+import { PublishCenterStore } from "./publishing/center.js";
+import { registerPublishCenterRoutes } from "./publishing/center-routes.js";
+import { ImageGenerationService } from "./publishing/image-generation.js";
 import { BlogDeploy } from "./publishing/blog-deploy.js";
 import { AgentService, type AgentOptions } from "./agents/service.js";
 import { registerAgentRoutes } from "./agents/routes.js";
@@ -39,6 +42,7 @@ export interface AppOptions {
   readerRoot?: string;
   publicOrigin?: string;
   verifyFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  imageFetch?: typeof fetch;
   agentOptions?: AgentOptions;
 }
 
@@ -55,6 +59,8 @@ export function createApp(options: AppOptions) {
   const knowledge = new KnowledgeIndex(db, vaults);
   const writing = new WritingContextStore(db, options.dataDir, vaults, articles, knowledge);
   const publications = new PublicationStore(db, options.dataDir, articles, options.publisherRoot);
+  const publishCenter = new PublishCenterStore(db, articles, options.dataDir);
+  const imageGeneration = new ImageGenerationService(options.dataDir, articles, publishCenter, options.imageFetch);
   const deploy = new BlogDeploy(db, options.dataDir, publications, articles, options);
   const agents = new AgentService(db, options.dataDir, articles, vaults, options.agentOptions, writing);
   const analysis = new AnalysisService(db, options.dataDir, vaults, options.agentOptions, options.readerRoot);
@@ -89,6 +95,7 @@ export function createApp(options: AppOptions) {
   registerArticleRoutes(app, articles, (id) => agents.isBusy(id));
   registerWritingContextRoutes(app, writing);
   registerPublicationRoutes(app, publications, deploy);
+  registerPublishCenterRoutes(app, publishCenter, imageGeneration);
   registerAgentRoutes(app, agents);
   registerAnalysisRoutes(app, analysis, analysisJobs);
   registerAttentionRoutes(app, attention);

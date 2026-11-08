@@ -75,7 +75,7 @@ test("navigation remembers its layout and non-writing pages have no conversation
 
   await page.reload();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeLessThan(100);
-  for (const name of ["知识库", "设置", "预览与发布"]) {
+  for (const name of ["知识库", "设置", "发布中心"]) {
     await page.getByRole("button", { name, exact: true }).click();
     await expect(page.getByLabel("向智能体提问")).toHaveCount(0);
   }

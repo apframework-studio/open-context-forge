@@ -12,7 +12,7 @@ import { ArticleList } from "./ArticleList";
 
 interface Props { sourceRef: SourceRef | null; articleId: string | null; vaults: VaultList | null;
   onArticle: (id: string, publicationId?: string | null) => void; onOpenSources: () => void;
-  onOpenPublish: (item: ArticleListItem) => void; onArticlesRemoved: (ids: string[]) => void }
+  onOpenPublish: (id: string, publicationId?: string | null) => void; onArticlesRemoved: (ids: string[]) => void }
 
 function articleTitleFromMarkdown(markdown: string): string | null {
   const withoutCodeBlocks = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "");
@@ -230,7 +230,7 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
   }
 
   if (workspaceView === "list") return <ArticleList items={items} busy={busy} message={message} onCreate={() => void create()} onSelect={(item) => void selectItem(item)}
-    onPublish={onOpenPublish} onManage={manageArticles} onPermanentlyDelete={permanentlyDelete} />;
+    onPublish={(item) => onOpenPublish(item.id, item.publicationId)} onManage={manageArticles} onPermanentlyDelete={permanentlyDelete} />;
   if (!article || article.id !== articleId) return <div className="article-loading"><p>{message || "正在打开文章…"}</p>
     <button className="secondary-button" onClick={() => navigate("list")}>返回文章列表</button></div>;
   const outlineCandidate = writing.proposals.outline;
@@ -250,12 +250,22 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
         <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>阅读文章</button></div>
       <div className="article-studio-actions"><button className="text-button" type="button" onClick={() => setMetadataOpen(true)}>发布信息</button>
         <button className="secondary-button" disabled={busy || !dirty} onClick={() => void save()}>保存草稿</button>
-        <button className="primary-button" disabled={busy || dirty || article.status === "final"} onClick={() => void finalize()}>定稿</button></div>
+        {article.status === "final" ? <button className="primary-button" disabled={busy || dirty} onClick={() => onOpenPublish(article.id, items.find((item) => item.id === article.id)?.publicationId)}>前往发布中心</button> :
+          <button className="primary-button" disabled={busy || dirty} onClick={() => void finalize()}>定稿</button>}</div>
     </div>
     <div className="article-context-bar"><button type="button" className="secondary-button" disabled={!writing.context || writing.busy} onClick={() => setMaterialsOpen(true)} aria-label="选择创作资料">选择创作资料</button>
       <span title={writing.context?.vaultIds.join("、")}>{writing.context ? `${writing.context.vaultIds.length} 个知识库 · ${writing.context.materials.length} 篇资料` : "正在恢复创作资料…"}</span>
       <label className="article-writer-skill" title={writing.skill?.path ?? "本机未找到 tech-article-writer，将使用普通写作对话"}><input type="checkbox" aria-label="请求使用文章写作技能" checked={!!writing.context?.skillEnabled && !!writing.skill?.available}
         disabled={!writing.context || !writing.skill?.available || writing.busy} onChange={() => void writing.toggleSkill()} />请求写作技能 <small>{writing.skill?.available ? "本机可用" : "未检测到"}</small></label></div>
+    {article.status === "draft" && <div className="article-finalize-guide" role="region" aria-label="定稿准备">
+      {!draft.replace(/^#{1,6}\s+.*$/gm, "").trim() ? pendingBody ? <><span>智能体正文待采用。审阅并采用后，才能定稿。</span>
+        <button className="text-button" onClick={() => { setProposalHash(pendingBody.sha256); setProposal(pendingBody.markdown); setMode("write"); setRightTab("body"); }}>审阅并采用正文</button></> :
+        <><span>先在 AI 写作中起草正文，审阅并采用后再定稿。</span><button className="text-button" onClick={() => { setMode("write"); setFocusChat(true); setMobilePane("chat"); }}>打开 AI 写作</button></> :
+        !title.trim() ? <span>先填写文章标题，再补齐发布信息并定稿。</span> :
+        !summary.trim() || !date ? <><span>正文已就绪，补齐公开摘要和发布日期后即可定稿。</span>
+          <button className="text-button" onClick={() => setMetadataOpen(true)}>补齐发布信息</button></> :
+          <span>正文和发布信息已就绪，可以定稿。</span>}
+    </div>}
     {writing.error && <p role="alert" className="inline-message error">{writing.error}</p>}
     {mode === "write" && <div className="article-mobile-tabs" role="tablist" aria-label="写作面板">
       <button type="button" role="tab" aria-selected={mobilePane === "chat"} onClick={() => setMobilePane("chat")}>AI 写作</button>

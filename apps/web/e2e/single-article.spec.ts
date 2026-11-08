@@ -73,7 +73,9 @@ test("one source reaches a reviewed blog package through the workflow", async ({
     await page.getByRole("button", { name: "定稿" }).click();
     await expect(page.getByRole("status")).toHaveText("已定稿");
 
-    await page.getByRole("button", { name: /预览与发布/ }).click();
+    await page.getByRole("button", { name: "发布中心", exact: true }).click();
+    await page.locator(".pc-table").getByRole("button", { name: /我的文章/ }).click();
+    await page.getByRole("button", { name: "博客（现有流程）" }).click();
     await expect(page.getByLabel("向智能体提问")).toHaveCount(0);
     await page.getByLabel("文章 slug").fill("my-article");
     await page.getByRole("button", { name: "生成本地发布包" }).click();

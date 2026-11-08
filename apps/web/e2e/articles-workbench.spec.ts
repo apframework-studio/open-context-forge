@@ -58,7 +58,33 @@ test("public metadata is filled after writing and completion appears in the arti
   await expect(page.getByRole("status")).toContainText("草稿已保存");
   await page.getByRole("button", { name: "定稿", exact: true }).click();
   await page.getByRole("button", { name: "返回文章列表" }).click();
-  await expect(page.getByLabel("文章列表").getByText("已完成", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("文章列表").getByText("已定稿", { exact: true })).toBeVisible();
+});
+
+test("a draft stays in the workbench and a finalized article opens publishing for the same article", async ({ page }) => {
+  await page.goto("/#articles");
+  await page.getByRole("button", { name: "新建文章" }).click();
+  await page.getByLabel("文章标题").fill("工作台发布衔接检查");
+  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await page.getByRole("button", { name: "返回文章列表" }).click();
+  const row = page.locator(".article-list-item").filter({ hasText: "工作台发布衔接检查" });
+  await expect(row.getByRole("button", { name: "发布", exact: true })).toHaveCount(0);
+  await row.getByRole("button", { name: "继续写作" }).click();
+  await expect(page.getByRole("textbox", { name: "文章标题" })).toHaveValue("工作台发布衔接检查");
+  await expect(page.getByRole("region", { name: "定稿准备" })).toContainText("先在 AI 写作中起草正文");
+
+  await seedDraft(page, "# 工作台发布衔接检查\n\n这是一篇可以定稿的测试正文。");
+  await page.getByRole("button", { name: "发布信息", exact: true }).click();
+  await page.getByLabel("公开摘要").fill("验证工作台到发布中心的衔接");
+  await page.getByLabel("发布日期").fill("2026-11-08");
+  await page.getByRole("button", { name: "完成设置" }).click();
+  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await page.getByRole("button", { name: "定稿", exact: true }).click();
+  await expect(page.getByRole("button", { name: "前往发布中心" })).toBeVisible();
+  await page.getByRole("button", { name: "前往发布中心" }).click();
+  await expect(page.getByRole("heading", { name: "工作台发布衔接检查", level: 2 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "微博发布" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "即刻发布" })).toBeVisible();
 });
 
 test("article list and editor stay within mobile and medium viewports", async ({ page }) => {
@@ -133,7 +159,7 @@ test("chat saves current text before sending and a reviewed reply can become the
   await expect(confirm).toContainText("这是经过讨论的新正文");
   await confirm.getByRole("button", { name: "替换正文" }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("这是经过讨论的新正文。");
-  await expect(page.getByLabel("文章标题")).toHaveValue("");
+  await expect(page.getByLabel("文章标题")).toHaveValue("尚未自动保存的初稿");
   await page.getByRole("button", { name: "用作大纲" }).click();
   await page.getByRole("dialog", { name: "采用大纲草案" }).getByRole("button", { name: "采用大纲" }).click();
   await expect(page.getByRole("tab", { name: "大纲", exact: true })).toHaveAttribute("aria-selected", "true");

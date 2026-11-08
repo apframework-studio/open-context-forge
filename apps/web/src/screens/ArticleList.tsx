@@ -4,7 +4,7 @@ import { WorkbenchSelect } from "../WorkbenchSelect";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 
 const articleStages: Record<ArticleListItem["stage"], string> = {
-  new: "新建", writing: "写作中", complete: "已完成", pending_publish: "待发布", published: "已发布",
+  new: "新建", writing: "写作中", complete: "已定稿", pending_publish: "待发布", published: "已发布",
 };
 interface Props {
   items: ArticleListItem[]; busy: boolean; message: string; onCreate: () => void;
@@ -78,8 +78,9 @@ export function ArticleList({ items, busy, message, onCreate, onSelect, onPublis
         <div className="article-list-actions">{view === "trash" ? <>
           <button className="text-button" type="button" disabled={busy} onClick={() => void manage("restore", [item])}>恢复</button>
           <button className="text-button article-delete-button" type="button" disabled={busy} onClick={() => { setError(""); setConfirmation({ action: "purge", items: [item] }); }}>永久删除</button></> : <>
-          <button className="text-button" type="button" disabled={busy} onClick={() => onSelect(item)}>编辑</button>
-          <button className="text-button" type="button" disabled={busy} onClick={() => onPublish(item)}>发布</button>
+          {item.status === "final" ? <><button className="text-button" type="button" disabled={busy} onClick={() => onSelect(item)}>查看</button>
+            <button className="text-button" type="button" disabled={busy} onClick={() => onPublish(item)}>前往发布中心</button></> :
+            <button className="text-button" type="button" disabled={busy} onClick={() => onSelect(item)}>继续写作</button>}
           <button className="text-button article-delete-button" type="button" disabled={busy} onClick={() => { setError(""); setConfirmation({ action: "trash", items: [item] }); }}>删除</button></>}</div>
       </article>) : <div className="article-index-empty"><WorkspaceIcon name="article" size={27} /><strong>{view === "trash" ? "回收站里没有匹配的文章" : viewItems.length ? "没有匹配的文章" : "开始你的第一篇文章"}</strong>
         <span>{view === "trash" ? "删除的文章可以在这里恢复。" : viewItems.length ? "试试其他关键词或状态。" : "创建空白稿，和智能体边聊边写。"}</span></div>}</div>
@@ -87,7 +88,7 @@ export function ArticleList({ items, busy, message, onCreate, onSelect, onPublis
         {chosen.length < filtered.length && <button className="text-button" disabled={busy || filtered.length > 1_000} onClick={() => setSelected(new Set(filtered.map((item) => item.id)))}>选择全部筛选结果（{filtered.length}）</button>}
         {view === "trash" ? <><button className="secondary-button" disabled={busy} onClick={() => void manage("restore", chosen)}>批量恢复</button>
           <button className="secondary-button article-empty-trash" disabled={busy} onClick={() => { setError(""); setConfirmation({ action: "purge", items: chosen }); }}>批量永久删除</button></> : <>
-          {chosen.length === 1 && <button className="secondary-button" disabled={busy} onClick={() => onPublish(chosen[0])}>预览与发布</button>}
+          {chosen.length === 1 && chosen[0].status === "final" && <button className="secondary-button" disabled={busy} onClick={() => onPublish(chosen[0])}>前往发布中心</button>}
           <button className="secondary-button" disabled={busy} onClick={() => { setError(""); setConfirmation({ action: "trash", items: chosen }); }}>批量删除</button></>}
         <button className="text-button" disabled={busy} onClick={() => setSelected(new Set())}>清除选择</button></div>}
       <div className="source-pagination"><span>第 {currentPage} / {pages} 页 · 共 {filtered.length} 篇</span><div>
