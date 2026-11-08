@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { readingDocument, readingMarkdown } from "./readingMarkdown";
 
 describe("readingMarkdown", () => {
+  it("starts a locally imported source at its YAML properties and original body", () => {
+    const snapshot = `# 本地文章\n\n- 本地文件：article.md\n- 导入时间：2026-11-07T03:33:07Z\n- 内容指纹：abc123\n\n---\n\n---\ntitle: 本地文章\nauthor: Ada\n---\n# 本地文章\n\n第一段正文。`;
+    const result = readingDocument({ kind: "source", title: "本地文章", markdown: snapshot });
+    expect(result.body).toBe("# 本地文章\n\n第一段正文。");
+    expect(result.properties).toEqual([{ name: "title", values: ["本地文章"] }, { name: "author", values: ["Ada"] }]);
+  });
+
+  it("keeps an optional import note out of the reading body", () => {
+    const snapshot = "# 本地文章\n\n- 本地文件：article.md\n- 导入时间：2026-11-07T03:33:07Z\n- 备注：留给自己核对\n- 内容指纹：abc123\n\n---\n\n正文从这里开始。";
+    expect(readingMarkdown({ kind: "source", title: "本地文章", markdown: snapshot })).toBe("正文从这里开始。");
+  });
+
   it("shows the article body first when a captured source has its standard metadata wrapper", () => {
     const original = `# Example article\n\n- 来源：https://example.com/article\n- 抓取时间：2026-10-20T09:01:04Z\n- 作者：Ada\n- Clipper 内容指纹：abc123\n\n---\n\nThe first real paragraph.\n\n## Section`;
     expect(readingMarkdown({ kind: "source", title: "Example article", markdown: original })).toBe("The first real paragraph.\n\n## Section");

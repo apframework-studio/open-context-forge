@@ -10,6 +10,29 @@ import { KnowledgeIndex } from "./knowledge-index.js";
 const maintainerRoot = resolve(process.cwd(), "../../../open-context-forge-vault-maintainer");
 const headers = { "x-ocf-client": "1" };
 
+test("source snippets begin with article content rather than import metadata", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ocf-source-snippet-"));
+  const external = join(root, "vault"); mkdirSync(external);
+  const app = createApp({ dataDir: join(root, "data"), maintainerRoot });
+  try {
+    const adopted = await app.inject({ method: "POST", url: "/api/v1/vaults", headers,
+      payload: { id: "snippet", path: external, adopt: true } });
+    expect(adopted.statusCode).toBe(201);
+    mkdirSync(join(external, "raw", "sources"), { recursive: true });
+    const snapshot = "# 本地文章\n\n- 本地文件：article.md\n- 导入时间：2026-11-07T03:33:07Z\n- 备注：留给自己核对\n- 内容指纹：abc123\n\n---\n\n---\ntitle: 本地文章\nauthor: Ada\n---\n# 本地文章\n\n第一段实际正文。\n\n第二段内容。";
+    const fingerprint = createHash("sha256").update(snapshot).digest("hex");
+    writeFileSync(join(external, "raw", "sources", "article.md"), snapshot);
+    writeFileSync(join(external, ".ocf", "ingest-manifest.json"), JSON.stringify({ sources: {
+      [fingerprint]: { snapshot: "raw/sources/article.md", imported_at: "2026-11-07T03:33:07Z" },
+    } }));
+    await app.inject({ method: "POST", url: "/api/v1/knowledge/snippet/rescan", headers });
+    const list = await app.inject({ method: "GET", url: "/api/v1/knowledge/items?vaultId=snippet&kind=source" });
+    const item = list.json().items[0];
+    expect(item.snippet).toContain("第一段实际正文");
+    expect(item.snippet).not.toMatch(/本地文件|导入时间|内容指纹|title:|author:/);
+  } finally { await app.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test("browses the whole vault and counts nested document formats without images or migration backups", async () => {
   const root = mkdtempSync(join(tmpdir(), "ocf-document-tree-"));
   const external = join(root, "vault");

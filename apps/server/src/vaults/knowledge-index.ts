@@ -57,6 +57,18 @@ function firstHeading(body: string, path: string): string {
   return body.match(/^#\s+(.+)$/m)?.[1]?.trim() || basename(path, extname(path));
 }
 
+function snippetBody(item: KnowledgeSummary, source: string): string {
+  if (item.kind !== "source" || item.format !== "markdown") return source;
+  const wrapper = /^# ([^\r\n]+)\r?\n\r?\n(?:- (?:来源|抓取时间|作者|备注|Clipper 内容指纹|本地文件|导入时间|内容指纹)：[^\r\n]*\r?\n){2,}\r?\n---\r?\n\r?\n/;
+  const match = source.match(wrapper);
+  let body = match && match[1].trim() === item.title.trim() ? source.slice(match[0].length) : source;
+  const properties = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (properties && /^[\w\p{L}][^\r\n]*:/mu.test(properties[1])) body = body.slice(properties[0].length);
+  const heading = body.match(/^# ([^\r\n]+)\r?\n/);
+  if (heading && heading[1].trim() === item.title.trim()) body = body.slice(heading[0].length);
+  return body.trimStart();
+}
+
 function cleanLinkText(body: string): string {
   return body.replace(/^\s*(```|~~~)[^\n]*\n[\s\S]*?^\s*\1[^\n]*$/gm, "").replace(/`[^`\n]+`/g, "");
 }
@@ -286,7 +298,7 @@ export class KnowledgeIndex {
         (b.importedAt ?? b.modifiedAt).localeCompare(a.importedAt ?? a.modifiedAt));
     return { total: items.length, page: options.page, pageSize: options.pageSize,
       items: items.slice((options.page - 1) * options.pageSize, options.page * options.pageSize).map((item) => {
-        const body = this.bodyFor(item.vaultId, item.path);
+        const body = snippetBody(item, this.bodyFor(item.vaultId, item.path)).replace(/\s+/g, " ");
         const hit = body.toLocaleLowerCase().indexOf(query);
         return { ...item, snippet: query && hit >= 0 ? body.slice(Math.max(0, hit - 55), hit + query.length + 90) : body.slice(0, 120) };
       }) };

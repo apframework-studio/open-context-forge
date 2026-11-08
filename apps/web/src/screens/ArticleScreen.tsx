@@ -149,7 +149,7 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
     return () => { active = false; };
   }, [articleId]);
 
-  const dirty = !!article && (draft !== article.markdown || title !== article.title || summary !== article.summary || date !== article.date);
+  const dirty = !!article && (draft.trim() !== article.markdown || title.trim() !== article.title || summary.trim() !== article.summary || date !== article.date);
   useEffect(() => {
     if (!dirty || busy) return;
     const timer = window.setTimeout(() => { void save(); }, 1_200);
@@ -237,14 +237,16 @@ export function ArticleScreen({ articleId, vaults, onArticle, onOpenSources, onO
   const bodyCandidate = writing.proposals.draft;
   const pendingOutline = outlineCandidate && outlineCandidate.markdown !== outlineDraft &&
     !dismissed.includes(outlineCandidate.sha256) ? outlineCandidate : null;
-  const pendingBody = bodyCandidate && bodyCandidate.markdown !== draft &&
+  const pendingBody = bodyCandidate && bodyCandidate.markdown.trim() !== draft.trim() &&
     !dismissed.includes(bodyCandidate.sha256) ? bodyCandidate : null;
+  const saveStatus = busy ? "正在保存…" : dirty && (!message || message.startsWith("草稿已保存")) ?
+    "有未保存的修改" : message || (dirty ? "有未保存的修改" : `已自动保存 · v${article.revision}`);
   return <div className="article-studio">
     <div className="article-studio-toolbar">
       <button className="article-back" type="button" aria-label="返回文章列表" title="返回文章列表" disabled={busy} onClick={() => void backToList()}><WorkspaceIcon name="chevronLeft" size={18} /><span>文章列表</span></button>
       <input className="article-inline-title" aria-label="文章标题" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="未命名文章" />
       <span className={`article-stage ${article.status === "final" ? "complete" : "writing"}`}>{article.status === "final" ? "已定稿" : "草稿"}</span>
-      <div className="article-save-line"><span role="status">{message || (busy ? "正在保存…" : dirty ? "有未保存的修改" : `已自动保存 · v${article.revision}`)}</span>
+      <div className="article-save-line"><span role="status">{saveStatus}</span>
         <span>{draft.replace(/\s/g, "").length.toLocaleString()} 字</span></div>
       <div className="article-mode-switch"><button type="button" aria-pressed={mode === "write"} onClick={() => { setMode("write"); setFocusChat(false); }}>协作写作</button>
         <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>阅读文章</button></div>
