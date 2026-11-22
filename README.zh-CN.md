@@ -17,7 +17,7 @@ npm run dev
 
 ## 从资料到成稿
 
-以下截图使用试用工作区中的虚构示例「社区图书角」。
+以下截图使用试用工作区中的虚构示例「社区图书角」。可以下载[借阅记录](docs/examples/walkthrough/zh-CN/library-lending.md)和[志愿者交接](docs/examples/walkthrough/zh-CN/library-handover.md)，跟着步骤试用。
 
 ### 1. 导入资料并确认入库
 

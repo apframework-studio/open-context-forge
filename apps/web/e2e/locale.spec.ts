@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { resolve } from "node:path";
 
 test("the language setting updates the workspace and survives a reload", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -21,7 +22,7 @@ test("switching the workspace language keeps the current article and its writing
   await page.getByRole("button", { name: "新建文章", exact: true }).click();
   await expect(page).toHaveURL(/#articles\/[^/]+$/);
   const articleUrl = page.url();
-  const title = "双语文章 A bilingual article";
+  const title = "A bilingual article";
   await page.getByLabel("文章标题", { exact: true }).fill(title);
   await page.getByLabel("向智能体提问").fill("Keep this unsent message.");
   await page.getByRole("button", { name: "切换到英语", exact: true }).click();
@@ -33,7 +34,7 @@ test("switching the workspace language keeps the current article and its writing
   await expect(page.getByRole("group", { name: "Suggested prompt" })).toContainText("Create a reviewable outline");
 });
 
-test("the English workspace supports importing a source, writing, and downloading HTML", async ({ page, request }) => {
+test("two English walkthrough sources become an English article and offline HTML", async ({ page, request }) => {
   const policy = await request.put(`http://127.0.0.1:${process.env.OCF_E2E_SERVER_PORT}/api/v1/imports/policy`, {
     headers: { "x-ocf-client": "1" }, data: { mode: "auto-file", vaultId: "default" },
   });
@@ -42,27 +43,34 @@ test("the English workspace supports importing a source, writing, and downloadin
   await page.goto("/#sources");
   await page.getByRole("button", { name: "切换到英语", exact: true }).click();
   await page.getByRole("button", { name: "Import sources", exact: true }).click();
-  const source = "A source for the English export workflow";
-  await page.getByLabel("Choose files").setInputFiles({
-    name: "english-source.md", mimeType: "text/markdown", buffer: Buffer.from(`# ${source}\n\nImported reference text.`),
-  });
+  const examples = resolve(import.meta.dirname, "../../../docs/examples/walkthrough/en");
+  await page.getByLabel("Choose files").setInputFiles([
+    resolve(examples, "library-lending.md"),
+    resolve(examples, "library-handover.md"),
+  ]);
   await expect(page.getByRole("tab", { name: /All sources/ })).toHaveAttribute("aria-selected", "true");
-  const row = page.locator(".source-row").filter({ hasText: source });
-  await expect(row.getByText("Filed", { exact: true })).toBeVisible();
-  await row.getByRole("checkbox", { name: `Select ${source}` }).check();
+  const titles = ["The Neighborhood Library's Lending Log", "A Volunteer Handover at the Neighborhood Library"];
+  for (const title of titles) {
+    const row = page.locator(".source-row").filter({ hasText: title });
+    await expect(row.getByText("Filed", { exact: true })).toBeVisible();
+    await row.getByRole("checkbox", { name: `Select ${title}` }).check();
+  }
   await page.getByRole("button", { name: "Write article from selected sources", exact: true }).click();
   await expect(page).toHaveURL(/#articles\/[^/]+$/);
   const articleId = new URL(page.url()).hash.split("/")[1];
-  const title = "English export workflow";
-  const articleText = "This is the reviewed article text.";
+  const title = "Keep Library Handovers on Track";
+  const articleText = "Record each loan and check the shelf at handover so the next shift can follow up on outstanding returns.";
+  const attached = page.getByLabel("Sources for this message");
+  for (const source of titles) await expect(attached).toContainText(source);
   await page.getByLabel("Article title", { exact: true }).fill(title);
   await page.route(`**/api/v1/articles/${articleId}/agent/runs`, async (route) => {
+    expect(route.request().postDataJSON().selections).toEqual([{ materialId: "S1" }, { materialId: "S2" }]);
     const now = new Date().toISOString();
     await route.fulfill({ status: 202, json: { id: "locale-export-run", articleId, profileId: "claude-current", assistantMessageId: "assistant",
       status: "completed", text: articleText, finalAnswer: articleText, tools: [], permissions: [], seq: 1,
       activity: "已完成", errorCode: null, createdAt: now, updatedAt: now } });
   });
-  await page.getByRole("textbox", { name: "Ask the assistant" }).fill("Write an article using the selected source.");
+  await page.getByRole("textbox", { name: "Ask the assistant" }).fill("Write an English article using both selected sources.");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await page.getByRole("button", { name: "Use as article text", exact: true }).click();
   const review = page.getByRole("dialog", { name: "Adopt assistant draft" });
@@ -86,4 +94,5 @@ test("the English workspace supports importing a source, writing, and downloadin
   const html = Buffer.concat(chunks).toString();
   expect(html).toContain('<html lang="en">');
   expect(html).toContain(articleText);
+  expect(html).not.toMatch(/\p{Script=Han}/u);
 });

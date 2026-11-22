@@ -13,11 +13,11 @@ npm install
 npm run dev
 ```
 
-Open the [local Wenmai workspace](http://127.0.0.1:5173/). Under **Settings → Appearance → Language**, choose **English** or **中文**. You can also switch from the workspace header.
+Open the [local Wenmai workspace](http://127.0.0.1:5173/). Choose **English** under **Settings → Appearance → Language**. The workspace header also has a language switch.
 
 ## From sources to an exported article
 
-The screenshots show the English interface using the same fictional community library example as the Chinese guide.
+Follow the walkthrough with two English-language notes from a fictional neighborhood library. Download the [lending log](docs/examples/walkthrough/en/library-lending.md) and the [volunteer handover](docs/examples/walkthrough/en/library-handover.md) to try it yourself.
 
 ### 1. Import and file your sources
 
