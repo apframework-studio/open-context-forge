@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function seedDraft(page: Page, markdown: string) {
   await expect(page.getByLabel("文章标题")).toBeVisible();
-  const id = await page.evaluate(() => localStorage.getItem("ocf-last-article"));
-  expect(id).toBeTruthy();
+  await expect(page).toHaveURL(/#articles\/[a-f0-9-]+$/);
+  const id = new URL(page.url()).hash.split("/")[1];
   const article = await (await page.request.get(`/api/v1/articles/${id}`)).json();
   const response = await page.request.put(`/api/v1/articles/${id}/draft`, { headers: { "x-ocf-client": "1" },
     data: { markdown, title: article.title, summary: article.summary, date: article.date, expectedRevision: article.revision } });
@@ -24,7 +24,7 @@ test("blank articles are created immediately and remain separate across switchin
   const firstTitle = `空稿隔离 ${Date.now()}`;
   await page.getByLabel("文章标题").fill(firstTitle);
   await expect(page.getByRole("region", { name: "文章列表", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await expect(page.locator(".article-save-line").getByRole("status")).toContainText("草稿已保存");
   await seedDraft(page, "# 第一篇\n\n先写内容，标题以后再定。");
   await page.getByRole("button", { name: "返回文章列表" }).click();
   await expect(page.locator(".article-list-item").filter({ has: page.getByRole("button", { name: firstTitle, exact: true }) }).getByText("写作中", { exact: true })).toBeVisible();
@@ -42,49 +42,58 @@ test("blank articles are created immediately and remain separate across switchin
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("先写内容，标题以后再定。");
 });
 
-test("public metadata is filled after writing and completion appears in the article list", async ({ page }) => {
+test("finalization asks for a title and saves a draft with no summary or selected date", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /文章工作台/ }).click();
   await page.getByRole("button", { name: "新建文章" }).click();
   await seedDraft(page, "# 初稿\n\n有完整正文。");
   await page.getByRole("button", { name: "定稿", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("定稿前请填写标题、公开摘要和发布日期");
+  await expect(page.locator(".article-save-line").getByRole("status")).toContainText("定稿前请填写文章标题");
+  await expect(page.getByRole("textbox", { name: "文章标题" })).toBeFocused();
 
   await page.getByLabel("文章标题").fill("正式文章");
-  await page.getByRole("button", { name: "发布信息", exact: true }).click();
-  await page.getByLabel("公开摘要").fill("给读者看的摘要");
-  await page.getByLabel("发布日期").fill("2026-10-24");
-  await page.getByRole("button", { name: "完成设置" }).click();
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
   await page.getByRole("button", { name: "定稿", exact: true }).click();
+  await expect(page.locator(".article-save-line").getByRole("status")).toHaveText("已定稿");
+  await page.getByRole("button", { name: "文章信息", exact: true }).click();
+  await expect(page.getByLabel("文章摘要")).toHaveValue("");
+  await expect(page.getByLabel("文章日期")).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  await page.getByRole("button", { name: "完成设置" }).click();
+  await expect(page.getByRole("button", { name: "保存草稿" })).toBeDisabled();
   await page.getByRole("button", { name: "返回文章列表" }).click();
   await expect(page.getByLabel("文章列表").getByText("已定稿", { exact: true })).toBeVisible();
 });
 
-test("a draft stays in the workbench and a finalized article opens publishing for the same article", async ({ page }) => {
+test("a draft stays in the workbench and a finalized article opens export for the same article", async ({ page }) => {
+  const title = `工作台发布衔接检查 ${crypto.randomUUID()}`;
+  const summary = "验证工作台到导出文章的衔接";
+  const date = "2026-11-08";
   await page.goto("/#articles");
   await page.getByRole("button", { name: "新建文章" }).click();
-  await page.getByLabel("文章标题").fill("工作台发布衔接检查");
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await page.getByLabel("文章标题").fill(title);
+  await expect(page.locator(".article-save-line").getByRole("status")).toContainText("草稿已保存");
   await page.getByRole("button", { name: "返回文章列表" }).click();
-  const row = page.locator(".article-list-item").filter({ hasText: "工作台发布衔接检查" });
-  await expect(row.getByRole("button", { name: "发布", exact: true })).toHaveCount(0);
+  const row = page.locator(".article-list-item").filter({ has: page.getByRole("button", { name: title, exact: true }) });
+  await expect(row.getByRole("button", { name: "前往导出", exact: true })).toHaveCount(0);
   await row.getByRole("button", { name: "继续写作" }).click();
-  await expect(page.getByRole("textbox", { name: "文章标题" })).toHaveValue("工作台发布衔接检查");
+  await expect(page.getByRole("textbox", { name: "文章标题" })).toHaveValue(title);
   await expect(page.getByRole("region", { name: "定稿准备" })).toContainText("先在 AI 写作中起草正文");
 
-  await seedDraft(page, "# 工作台发布衔接检查\n\n这是一篇可以定稿的测试正文。");
-  await page.getByRole("button", { name: "发布信息", exact: true }).click();
-  await page.getByLabel("公开摘要").fill("验证工作台到发布中心的衔接");
-  await page.getByLabel("发布日期").fill("2026-11-08");
+  await seedDraft(page, `# ${title}\n\n这是一篇可以定稿的测试正文。`);
+  const path = `/api/v1/articles/${new URL(page.url()).hash.split("/")[1]}`;
+  await page.getByRole("button", { name: "文章信息", exact: true }).click();
+  await page.getByLabel("文章摘要").fill(summary);
+  await page.getByLabel("文章日期").fill(date);
   await page.getByRole("button", { name: "完成设置" }).click();
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await expect.poll(async () => {
+    const persisted = await (await page.request.get(path)).json();
+    return { summary: persisted.summary, date: persisted.date };
+  }).toEqual({ summary, date });
   await page.getByRole("button", { name: "定稿", exact: true }).click();
-  await expect(page.getByRole("button", { name: "前往发布中心" })).toBeVisible();
-  await page.getByRole("button", { name: "前往发布中心" }).click();
-  await expect(page.getByRole("heading", { name: "工作台发布衔接检查", level: 2 })).toBeVisible();
-  await expect(page.getByRole("button", { name: "微博发布" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "即刻发布" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "前往导出" })).toBeVisible();
+  await page.getByRole("button", { name: "前往导出" }).click();
+  await expect(page.getByRole("region", { name: "导出预览" })).toContainText(title);
+  await expect(page.getByRole("button", { name: "另存为 PDF" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "下载 HTML" })).toBeVisible();
 });
 
 test("article list and editor stay within mobile and medium viewports", async ({ page }) => {
@@ -142,7 +151,7 @@ test("chat saves current text before sending and a reviewed reply can become the
     const articleUrl = route.request().url().replace(/\/agent\/runs$/, "");
     savedText = (await (await page.request.get(articleUrl)).json()).markdown;
     await route.fulfill({ json: { id: "completed-run", articleId: articleUrl.split("/").at(-1), profileId: "claude-current", assistantMessageId: "assistant",
-      status: "completed", text: "# 改写后的文章\n\n这是经过讨论的新正文。", tools: [], permissions: [], seq: 1,
+      status: "completed", text: "我会先读取试用资料。\n\n# 改写后的文章\n\n这是经过讨论的新正文。", tools: [], permissions: [], seq: 1,
       activity: "已完成", errorCode: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } });
   });
   await page.goto("/");
@@ -157,8 +166,10 @@ test("chat saves current text before sending and a reviewed reply can become the
   await page.getByRole("button", { name: "用作正文" }).click();
   const confirm = page.getByRole("dialog", { name: "采用智能体正文" });
   await expect(confirm).toContainText("这是经过讨论的新正文");
+  await expect(confirm).not.toContainText("我会先读取试用资料");
   await confirm.getByRole("button", { name: "替换正文" }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("这是经过讨论的新正文。");
+  await expect(page.getByRole("log", { name: "文章讨论记录" })).toContainText("我会先读取试用资料");
   await expect(page.getByLabel("文章标题")).toHaveValue("尚未自动保存的初稿");
   await page.getByRole("button", { name: "用作大纲" }).click();
   await page.getByRole("dialog", { name: "采用大纲草案" }).getByRole("button", { name: "采用大纲" }).click();

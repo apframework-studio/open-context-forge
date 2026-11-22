@@ -1,4 +1,4 @@
-export type WorkspaceArea = "资料与分析" | "知识库" | "文章工作台" | "发布中心";
+export type WorkspaceArea = "资料与分析" | "知识库" | "文章工作台" | "导出文章";
 
 export interface AuthorEvidence {
   value: string;

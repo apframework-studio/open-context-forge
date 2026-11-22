@@ -1,0 +1,27 @@
+.article-export-paper {
+  color: #202632;
+  font: 16px/1.75 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+.article-export-paper header { margin-bottom: 28px; }
+.article-export-paper h1 { margin: 0 0 .5em; font-size: 2em; line-height: 1.25; }
+.article-export-paper h2, .article-export-paper h3 { line-height: 1.35; }
+.article-export-paper time { color: #5b6574; font-size: .85em; }
+.article-export-paper a { color: #174dad; }
+.article-export-paper p { margin: .75em 0; }
+.article-export-paper blockquote { margin-left: 0; padding-left: 1em; border-left: 3px solid #c4ccd7; }
+.article-export-paper img { display: block; max-width: 100%; height: auto; margin-block: 1em; }
+.article-export-paper figure { margin: 1em 0; }
+.article-export-paper figure img { max-height: 220mm; object-fit: contain; }
+.article-export-paper figcaption { color: #5b6574; font-size: .85em; }
+.article-export-paper table { width: 100%; border-collapse: collapse; }
+.article-export-paper th, .article-export-paper td { padding: .35em .5em; border: 1px solid #c4ccd7; }
+.article-export-paper pre { white-space: pre-wrap; padding: .75em; background: #f1f4f7; }
+.article-export-paper code { font-family: ui-monospace, monospace; }
+@page { size: A4; margin: 16mm; }
+@media print {
+  .article-export-paper { font-size: 11pt; }
+  .article-export-paper h1, .article-export-paper h2, .article-export-paper h3 { break-after: avoid; }
+  .article-export-paper figure, .article-export-paper img, .article-export-paper tr { break-inside: avoid; }
+  .article-export-paper img { max-height: 220mm; object-fit: contain; }
+}

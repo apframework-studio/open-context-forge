@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { KnowledgeGraph as GraphData, KnowledgeItem } from "../api";
+import { useLocale } from "../locale";
 import { layoutGraph } from "./graphLayout";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 interface Drag { x: number; y: number; startX: number; startY: number }
 
 export function KnowledgeGraph({ graph, title, tools, onNode, onFocus, onResetFocus }: Props) {
+  const { t } = useLocale();
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [size, setSize] = useState({ width: 960, height: 560 });
@@ -50,20 +52,22 @@ export function KnowledgeGraph({ graph, title, tools, onNode, onFocus, onResetFo
     setScale(1); setOffset({ x: 0, y: 0 }); setActivePath(null); onResetFocus();
   }
 
+  const nodeCount = scene.nodes.length === graph.totalNodes ? graph.totalNodes : `${scene.nodes.length}/${graph.totalNodes}`;
+
   return <div className="knowledge-graph">
     <div className="knowledge-graph-main">
       <div className="knowledge-graph-controls">
         <strong>{title}</strong>
         <div className="knowledge-graph-zoom">
-          <button className="secondary-button" onClick={() => setScale((value) => Math.min(3, value + .2))}>放大</button>
-          <button className="secondary-button" onClick={() => setScale((value) => Math.max(.5, value - .2))}>缩小</button>
-          <button className="secondary-button" onClick={reset}>重置视野</button>
+          <button className="secondary-button" onClick={() => setScale((value) => Math.min(3, value + .2))}>{t("放大", "Zoom in")}</button>
+          <button className="secondary-button" onClick={() => setScale((value) => Math.max(.5, value - .2))}>{t("缩小", "Zoom out")}</button>
+          <button className="secondary-button" onClick={reset}>{t("重置视野", "Reset view")}</button>
         </div>
         <button className="secondary-button knowledge-graph-tools-toggle" aria-expanded={toolsOpen}
-          aria-controls="knowledge-graph-tools" onClick={() => setToolsOpen((open) => !open)}>图谱工具</button>
+          aria-controls="knowledge-graph-tools" onClick={() => setToolsOpen((open) => !open)}>{t("图谱工具", "Graph tools")}</button>
       </div>
     <svg ref={canvas} className="knowledge-graph-canvas" viewBox={`0 0 ${size.width} ${size.height}`}
-      role="group" aria-label="知识库链接图谱"
+      role="group" aria-label={t("知识库链接图谱", "Knowledge link graph")}
       onWheel={(event) => { event.preventDefault(); setScale((value) => Math.max(.5, Math.min(3, value + (event.deltaY < 0 ? .12 : -.12)))); }}
       onPointerDown={(event) => {
         moved.current = false;
@@ -107,33 +111,38 @@ export function KnowledgeGraph({ graph, title, tools, onNode, onFocus, onResetFo
         })}
       </g>
       {scene.nodes.length === 0 && <text className="knowledge-graph-empty" x={size.width / 2} y={size.height / 2} textAnchor="middle">
-        {graph.nodes.length ? "当前只剩孤立节点；可重新显示。" : "该知识库还没有可绘制的内容。"}</text>}
+        {graph.nodes.length ? t("当前只剩孤立节点；可重新显示。", "Show isolated nodes to see this graph.") :
+          t("该知识库还没有可绘制的内容。", "There are no nodes in this vault yet.")}</text>}
     </svg>
       <div className="knowledge-graph-foot">
-        <div className="knowledge-graph-legend"><span><i className="source" />来源</span><span><i className="note" />笔记</span></div>
-        <span>{scene.nodes.length === graph.totalNodes ? graph.totalNodes : `${scene.nodes.length}/${graph.totalNodes}`} 个节点 · {graph.edges.length} 条可验证关系</span>
+        <div className="knowledge-graph-legend"><span><i className="source" />{t("来源", "Sources")}</span><span><i className="note" />{t("笔记", "Notes")}</span></div>
+        <span>{t(`${nodeCount} 个节点 · ${graph.edges.length} 条可验证关系`,
+          `${nodeCount} ${nodeCount === 1 ? "node" : "nodes"} · ${graph.edges.length} verified ${graph.edges.length === 1 ? "link" : "links"}`)}</span>
       </div>
     </div>
-    <aside id="knowledge-graph-tools" className={`knowledge-graph-sidebar${toolsOpen ? " is-open" : ""}`} aria-label="图谱工具">
-      <div className="knowledge-graph-sidebar-head"><h3>图谱工具</h3>
-        <button className="text-button" aria-label="关闭图谱工具" onClick={() => setToolsOpen(false)}>收起</button></div>
+    <aside id="knowledge-graph-tools" className={`knowledge-graph-sidebar${toolsOpen ? " is-open" : ""}`} aria-label={t("图谱工具", "Graph tools")}>
+      <div className="knowledge-graph-sidebar-head"><h3>{t("图谱工具", "Graph tools")}</h3>
+        <button className="text-button" aria-label={t("关闭图谱工具", "Close graph tools")} onClick={() => setToolsOpen(false)}>{t("收起", "Close")}</button></div>
       <div className="knowledge-graph-sidebar-controls">{tools}
         <button className="text-button knowledge-graph-orphans" disabled={!scene.orphanCount}
           onClick={() => { setShowOrphans((value) => !value); setActivePath(null); }}>
-          {showOrphans ? "隐藏孤立节点" : "显示孤立节点"}{scene.orphanCount ? ` · ${scene.orphanCount}` : ""}
+          {showOrphans ? t("隐藏孤立节点", "Hide isolated nodes") : t("显示孤立节点", "Show isolated nodes")}{scene.orphanCount ? ` · ${scene.orphanCount}` : ""}
         </button>
       </div>
-      <section className="knowledge-graph-node-section"><h3>节点 <small>{scene.nodes.length}</small></h3>
-        {graph.truncated && <p className="muted">当前显示 {graph.nodes.length}/{graph.totalNodes} 个节点。可搜索或聚焦节点缩小范围。</p>}
+      <section className="knowledge-graph-node-section"><h3>{t("节点", "Nodes")} <small>{scene.nodes.length}</small></h3>
+        {graph.truncated && <p className="muted">{t(`当前显示 ${graph.nodes.length}/${graph.totalNodes} 个节点。可搜索或聚焦节点缩小范围。`,
+          `Showing ${graph.nodes.length} of ${graph.totalNodes} nodes. Search or focus a node to narrow the graph.`)}</p>}
         <div className="knowledge-graph-node-list">{scene.nodes.map(({ item }) =>
-          <div key={item.path}><button className="text-button" aria-label={duplicateTitles.has(item.title) ? `阅读 ${item.title} · ${item.path}` : undefined}
-              onClick={() => onNode(item)}>{item.title}{item.analysisStatus ? " · 有分析文件" : ""}</button>
-            <button className="text-button" aria-label={`聚焦 ${item.title} · ${item.path} 的相邻节点`} onClick={() => onFocus(item.path)}>聚焦相邻</button>
+          <div key={item.path}><button className="text-button" aria-label={duplicateTitles.has(item.title) ? t(`阅读 ${item.title} · ${item.path}`, `Read ${item.title} · ${item.path}`) : undefined}
+              onClick={() => onNode(item)}>{item.title}{item.analysisStatus ? t(" · 有分析文件", " · Analysis available") : ""}</button>
+            <button className="text-button" aria-label={t(`聚焦 ${item.title} · ${item.path} 的相邻节点`, `Focus neighbors of ${item.title} · ${item.path}`)}
+              onClick={() => onFocus(item.path)}>{t("聚焦相邻", "Focus neighbors")}</button>
             {duplicateTitles.has(item.title) && <small title={item.path}>{item.path}</small>}</div>)}</div>
       </section>
-      <details className="knowledge-graph-issues"><summary>待检查链接 {graph.issues.length}</summary><div>{graph.issues.length ? graph.issues.map((issue, index) =>
-        <p className="knowledge-issue" key={`${issue.from}:${issue.line}:${index}`}>{issue.from}:L{issue.line} → {issue.target} · {issue.reason === "ambiguous" ? "目标有歧义" : "目标不存在"}</p>) :
-        <p className="muted">当前范围没有失效或有歧义的链接。</p>}</div></details>
+      <details className="knowledge-graph-issues"><summary>{t("待检查链接", "Links to review")} {graph.issues.length}</summary><div>{graph.issues.length ? graph.issues.map((issue, index) =>
+        <p className="knowledge-issue" key={`${issue.from}:${issue.line}:${index}`}>{issue.from}:L{issue.line} → {issue.target} · {issue.reason === "ambiguous" ?
+          t("目标有歧义", "Ambiguous target") : t("目标不存在", "Missing target")}</p>) :
+        <p className="muted">{t("当前范围没有失效或有歧义的链接。", "There are no broken or ambiguous links in this view.")}</p>}</div></details>
     </aside>
   </div>;
 }

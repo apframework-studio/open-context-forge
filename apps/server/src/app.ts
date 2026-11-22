@@ -92,7 +92,7 @@ export function createApp(options: AppOptions) {
   registerImportRoutes(app, db, vaults, filingJobs, analysisJobs);
   registerFilingRoutes(app, vaults, filingJobs);
   registerVaultRoutes(app, db, vaults, analysisJobs);
-  registerArticleRoutes(app, articles, (id) => agents.isBusy(id));
+  registerArticleRoutes(app, articles, writing, (id) => agents.isBusy(id));
   registerWritingContextRoutes(app, writing);
   registerPublicationRoutes(app, publications, deploy);
   registerPublishCenterRoutes(app, publishCenter, imageGeneration);

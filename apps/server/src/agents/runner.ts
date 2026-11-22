@@ -25,7 +25,7 @@ export interface AgentPermission { id: string; title: string; options: { optionI
 export type AgentEvent = { type: "text"; text: string } | { type: "tool"; tool: AgentTool } |
   { type: "activity"; text: string } | { type: "session"; sessionId: string };
 
-export type AgentRunner = (input: AgentRunInput) => Promise<{ text: string; sessionId: string }>;
+export type AgentRunner = (input: AgentRunInput) => Promise<{ text: string; sessionId: string; finalAnswer?: string }>;
 
 export interface AgentProfile {
   id: "claude-current" | "claude-deepseek" | "claude-api" | "codex-current";

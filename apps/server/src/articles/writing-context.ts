@@ -109,6 +109,34 @@ export class WritingContextStore {
     return { ...ref, id, title, kind, sha256: createHash("sha256").update(markdown).digest("hex"), originalUrl,
       addedAt: new Date().toISOString(), markdown, outlinks, issues };
   }
+  private insertContext(articleId: string, details: WritingMaterialDetail[]): WritingContext {
+    const materials = details.map(materialMetadata);
+    const context: WritingContext = { revision: 0, vaultIds: [...new Set(materials.map(({ vaultId }) => vaultId))],
+      materials, skillEnabled: true };
+    this.db.prepare("INSERT INTO writing_contexts VALUES (?,?,?)").run(articleId, JSON.stringify(context), materials.length + 1);
+    const insert = this.db.prepare("INSERT INTO writing_materials VALUES (?,?,?,?)");
+    details.forEach((detail, index) => {
+      insert.run(articleId, detail.id, JSON.stringify(materials[index]), this.snapshot(articleId, detail));
+    });
+    return context;
+  }
+  prepareInitialContext(input: unknown): (articleId: string) => void {
+    if (!Array.isArray(input) || input.length < 1 || input.length > 30) invalid();
+    const keys = new Set<string>();
+    const vaultIds = new Set<string>();
+    const refs: WritingMaterialRef[] = input.map((ref) => {
+      if (!ref || typeof ref.vaultId !== "string" || !validRelative(ref.path)) invalid();
+      const key = JSON.stringify([ref.vaultId, ref.path]);
+      if (keys.has(key)) invalid();
+      keys.add(key); vaultIds.add(ref.vaultId);
+      return { vaultId: ref.vaultId, path: ref.path };
+    });
+    if (vaultIds.size > 20) invalid();
+    return (articleId) => {
+      const details = refs.map((ref, index) => this.source(ref, `S${index + 1}`));
+      this.insertContext(articleId, details);
+    };
+  }
   async get(articleId: string): Promise<WritingContext> {
     return this.articles.withActivity(articleId, async () => {
       const article = await this.articles.get(articleId);
@@ -116,10 +144,7 @@ export class WritingContextStore {
       const detail = article.sourceRef ? this.source({ vaultId: article.sourceRef.vaultId, path: article.sourceRef.snapshot }, "S1", true) : null;
       return this.db.transaction(() => {
         if (this.row(articleId)) return this.current(articleId);
-        const context: WritingContext = { revision: 0, vaultIds: detail ? [detail.vaultId] : [], materials: detail ? [materialMetadata(detail)] : [], skillEnabled: true };
-        this.db.prepare("INSERT INTO writing_contexts VALUES (?,?,?)").run(articleId, JSON.stringify(context), detail ? 2 : 1);
-        if (detail) this.db.prepare("INSERT INTO writing_materials VALUES (?,?,?,?)").run(articleId, detail.id, JSON.stringify(materialMetadata(detail)), this.snapshot(articleId, detail));
-        return context;
+        return this.insertContext(articleId, detail ? [detail] : []);
       })();
     });
   }

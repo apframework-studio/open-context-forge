@@ -10,7 +10,10 @@ const finish = () => {
 };
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
-  if (message.method === "initialize") send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
+  if (message.method === "initialize") {
+    if (mode === "phases" && message.params.clientCapabilities?._meta?.jetbrains?.air?.version !== 1) process.exit(3);
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
+  }
   else if (message.method === "session/new") send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "native-session" } });
   else if (message.method === "session/load") {
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "不应重复的历史" } });
@@ -18,6 +21,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } else if (message.method === "session/prompt") {
     promptId = message.id;
     if (mode === "exit") { process.exit(1); return; }
+    if (mode === "phases") {
+      const phaseChunk = (phase, text) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text },
+        _meta: { jetbrains: { air: { version: 1, phase } } } });
+      phaseChunk("commentary", "我会先读取资料。\n");
+      phaseChunk("final_answer", "# 正文\n\n");
+      phaseChunk("final_answer", "这是可以采用的文稿。");
+      send({ jsonrpc: "2.0", id: promptId, result: { stopReason: "end_turn" } });
+      return;
+    }
     const chunk = JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "native-session", update: {
       sessionUpdate: "agent_message_chunk", content: { type: "text", text: "第一段，" } } } }) + "\n";
     // A pipe can split a JSON line anywhere, including multibyte text.

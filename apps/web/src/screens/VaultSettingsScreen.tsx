@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, type BrandingStatus, type ImportPolicy, type KnowledgeOverview, type Vault, type VaultList } from "../api";
+import { useLocale, type LocalizedNotice } from "../locale";
 import { WorkbenchSelect } from "../WorkbenchSelect";
+import { indexIssueEnglish } from "./knowledgeIndexMessages";
 
 interface Props {
   vaults: VaultList | null;
@@ -12,21 +14,22 @@ interface Props {
 }
 
 export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, iconUrl, onBrandingChange }: Props) {
+  const { locale, setLocale, t, noticeText } = useLocale();
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null);
   const [id, setId] = useState("");
   const [path, setPath] = useState("");
   const [plannedChanges, setPlannedChanges] = useState<string[] | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<LocalizedNotice | null>(null);
   const [busy, setBusy] = useState(false);
   const [captureMode, setCaptureMode] = useState<ImportPolicy["mode"]>("manual");
   const [captureVaultId, setCaptureVaultId] = useState("");
   const [captureAuthorship, setCaptureAuthorship] = useState<ImportPolicy["defaultAuthorship"]>("unknown");
-  const [captureMessage, setCaptureMessage] = useState("");
+  const [captureMessage, setCaptureMessage] = useState<LocalizedNotice | null>(null);
   const [captureBusy, setCaptureBusy] = useState(false);
   const [maintenanceOverrides, setMaintenanceOverrides] = useState<Record<string, boolean>>({});
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
-  const [iconMessage, setIconMessage] = useState("");
+  const [iconMessage, setIconMessage] = useState<LocalizedNotice | null>(null);
   const [iconBusy, setIconBusy] = useState(false);
 
   useEffect(() => {
@@ -41,7 +44,7 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
     void api<ImportPolicy>("/imports/policy").then((policy) => {
       setCaptureMode(policy.mode); setCaptureVaultId(policy.vaultId ?? vaults?.defaultVaultId ?? "");
       setCaptureAuthorship(policy.defaultAuthorship);
-    }).catch((error) => setCaptureMessage(error instanceof Error ? error.message : "读取采集规则失败"));
+    }).catch((error) => setCaptureMessage([error, "读取采集规则失败", "Could not load import rules."]));
   }, [vaults]);
   useEffect(() => {
     if (!focusSection) return;
@@ -50,63 +53,64 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
   }, [focusSection]);
 
   async function saveCapturePolicy() {
-    setCaptureBusy(true); setCaptureMessage("");
+    setCaptureBusy(true); setCaptureMessage(null);
     try {
       await api<ImportPolicy>("/imports/policy", { method: "PUT", body: {
         mode: captureMode, vaultId: captureMode === "auto-file" ? captureVaultId : null,
         defaultAuthorship: captureAuthorship,
       } });
-      setCaptureMessage("采集规则已保存");
-    } catch (error) { setCaptureMessage(error instanceof Error ? error.message : "保存采集规则失败"); }
+      setCaptureMessage(["采集规则已保存", "Import rules saved."]);
+    } catch (error) { setCaptureMessage([error, "保存采集规则失败", "Could not save import rules."]); }
     finally { setCaptureBusy(false); }
   }
 
   async function saveIcon() {
     if (!iconFile) return;
-    setIconBusy(true); setIconMessage("");
+    setIconBusy(true); setIconMessage(null);
     try {
       const form = new FormData();
       form.append("file", iconFile);
       onBrandingChange(await api<BrandingStatus>("/branding/icon", { method: "PUT", body: form }));
-      setIconFile(null); setIconMessage("图标已更新");
-    } catch (error) { setIconMessage(error instanceof Error ? error.message : "图标更新失败"); }
+      setIconFile(null); setIconMessage(["图标已更新", "Icon updated."]);
+    } catch (error) { setIconMessage([error, "图标更新失败", "Could not update the icon."]); }
     finally { setIconBusy(false); }
   }
 
   async function restoreIcon() {
-    setIconBusy(true); setIconMessage("");
+    setIconBusy(true); setIconMessage(null);
     try {
       onBrandingChange(await api<BrandingStatus>("/branding/icon", { method: "DELETE" }));
-      setIconFile(null); setIconMessage("已恢复默认图标");
-    } catch (error) { setIconMessage(error instanceof Error ? error.message : "恢复默认图标失败"); }
+      setIconFile(null); setIconMessage(["已恢复默认图标", "Default icon restored."]);
+    } catch (error) { setIconMessage([error, "恢复默认图标失败", "Could not restore the default icon."]); }
     finally { setIconBusy(false); }
   }
 
   async function add(adopt: boolean) {
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(null);
     try {
       await api<Vault>("/vaults", { method: "POST", body: { id, path, adopt } });
-      setPlannedChanges(null); setId(""); setPath(""); setMessage("知识库已连接，原有笔记可在知识库中浏览");
+      setPlannedChanges(null); setId(""); setPath(""); setMessage(["知识库已连接，原有笔记可在知识库中浏览", "Knowledge base connected. Your existing notes are ready to browse."]);
       await refresh();
     } catch (error) {
       if (error instanceof ApiError && error.code === "ADOPTION_REQUIRED") setPlannedChanges(error.plannedChanges ?? []);
-      else setMessage(error instanceof Error ? error.message : "连接失败");
+      else setMessage([error, "连接失败", "Could not connect the knowledge base."]);
     } finally { setBusy(false); }
   }
 
   async function makeDefault(vaultId: string) {
     try { await api("/vaults/default", { method: "PUT", body: { vaultId } }); await refresh(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "切换失败"); }
+    catch (error) { setMessage([error, "切换失败", "Could not change the default knowledge base."]); }
   }
 
   async function setAutoMaintain(vaultId: string, enabled: boolean) {
     setMaintenanceOverrides((current) => ({ ...current, [vaultId]: enabled }));
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(null);
     try {
       await api(`/vaults/${encodeURIComponent(vaultId)}/maintenance-policy`, { method: "PUT", body: { enabled } });
       await refresh();
-      setMessage(`${vaultId} 已${enabled ? "启用" : "关闭"}入库后自动维护`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "保存自动维护设置失败"); }
+      setMessage([`${vaultId} 已${enabled ? "启用" : "关闭"}入库后自动维护`,
+        `Automatic maintenance ${enabled ? "enabled" : "disabled"} for ${vaultId}.`]);
+    } catch (error) { setMessage([error, "保存自动维护设置失败", "Could not save the maintenance setting."]); }
     finally {
       setMaintenanceOverrides((current) => { const next = { ...current }; delete next[vaultId]; return next; });
       setBusy(false);
@@ -114,91 +118,101 @@ export function VaultSettingsScreen({ vaults, refresh, focusSection, branding, i
   }
 
   async function rescan(vaultId: string) {
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(null);
     try {
       await api(`/knowledge/${encodeURIComponent(vaultId)}/rescan`, { method: "POST" });
-      setOverview(await api<KnowledgeOverview>("/knowledge/overview")); setMessage(`${vaultId} 已重新索引`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "索引失败"); }
+      setOverview(await api<KnowledgeOverview>("/knowledge/overview")); setMessage([`${vaultId} 已重新索引`, `Reindexed ${vaultId}.`]);
+    } catch (error) { setMessage([error, "索引失败", "Could not reindex the knowledge base."]); }
     finally { setBusy(false); }
   }
 
   async function disconnect(vaultId: string) {
-    if (!window.confirm(`断开 ${vaultId}？原目录和笔记不会删除。`)) return;
-    setBusy(true); setMessage("");
+    if (!window.confirm(t(`断开 ${vaultId}？原目录和笔记不会删除。`, `Disconnect ${vaultId}? Its folder and notes will stay on this device.`))) return;
+    setBusy(true); setMessage(null);
     try {
       await api(`/vaults/${encodeURIComponent(vaultId)}`, { method: "DELETE" });
-      await refresh(); setMessage(`${vaultId} 已断开，原文件保留`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "断开失败"); }
+      await refresh(); setMessage([`${vaultId} 已断开，原文件保留`, `Disconnected ${vaultId}. Your files are still in the original folder.`]);
+    } catch (error) { setMessage([error, "断开失败", "Could not disconnect the knowledge base."]); }
     finally { setBusy(false); }
   }
 
   return <div className="screen-stack">
     <section className="panel-card" id="appearance-settings">
-      <div className="section-heading"><div><span className="overline">APPEARANCE</span><h2>外观</h2></div></div>
-      <p className="muted">当前名称：文脉引擎。图标用于侧栏和浏览器标签，可随时更换或恢复默认。</p>
+      <div className="section-heading"><h2>{t("外观", "Appearance")}</h2></div>
+      <div className="locale-setting">
+        <span id="locale-setting-label">{t("界面语言", "Language")}</span>
+        <div role="group" aria-labelledby="locale-setting-label" className="workspace-theme-switch">
+          <button type="button" lang="zh-CN" aria-pressed={locale === "zh-CN"} onClick={() => setLocale("zh-CN")}>中文</button>
+          <button type="button" lang="en" aria-pressed={locale === "en"} onClick={() => setLocale("en")}>English</button>
+        </div>
+      </div>
+      <p className="muted">{t("当前名称：文脉引擎。图标用于侧栏和浏览器标签，可随时更换或恢复默认。", "Choose an icon for the Wenmai sidebar and browser tab.")}</p>
       <div className="branding-settings">
-        <img className="branding-preview" src={iconPreview ?? iconUrl} alt="当前图标预览" />
+        <img className="branding-preview" src={iconPreview ?? iconUrl} alt={t("当前图标预览", "Current icon preview")} />
         <div className="branding-settings-main">
-          <label htmlFor="branding-icon-file">替换图标</label>
+          <label htmlFor="branding-icon-file">{t("替换图标", "Replace icon")}</label>
           <input id="branding-icon-file" type="file" accept="image/png,.png" disabled={iconBusy}
-            onChange={(event) => { setIconFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; setIconMessage(""); }} />
-          <small>选择 32–512 像素的正方形 PNG，文件不超过 1 MiB。</small>
+            onChange={(event) => { setIconFile(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ""; setIconMessage(null); }} />
+          <small>{t("选择 32–512 像素的正方形 PNG，文件不超过 1 MiB。", "Choose a square PNG from 32 to 512 pixels, up to 1 MiB.")}</small>
           <div className="action-row">
-            <button className="primary-button" disabled={!iconFile || iconBusy} onClick={() => void saveIcon()}>保存图标</button>
-            {branding.customized && <button className="secondary-button" disabled={iconBusy} onClick={() => void restoreIcon()}>恢复默认</button>}
-            {iconMessage && <span className="inline-message" role="status">{iconMessage}</span>}
+            <button className="primary-button" disabled={!iconFile || iconBusy} onClick={() => void saveIcon()}>{t("保存图标", "Save icon")}</button>
+            {branding.customized && <button className="secondary-button" disabled={iconBusy} onClick={() => void restoreIcon()}>{t("恢复默认", "Restore default")}</button>}
+            {iconMessage && <span className="inline-message" role="status">{noticeText(iconMessage)}</span>}
           </div>
         </div>
       </div>
     </section>
     <section className="panel-card" id="capture-settings">
-      <div className="section-heading"><div><span className="overline">BROWSER CAPTURE</span><h2>浏览器一键采集</h2></div><span className="tag">插件待接入</span></div>
-      <p className="muted">浏览器插件尚未接入。当前可在资料处理台导入 Clipper ZIP；这里配置采集后的统一处理规则，插件接入后继续使用。</p>
-      <div className="form-grid two"><div className="select-field"><span>采集后如何处理</span>
-        <WorkbenchSelect label="采集后如何处理" value={captureMode} onChange={(value) => setCaptureMode(value as ImportPolicy["mode"])}
-          options={[{ value: "manual", label: "先放待整理" }, { value: "auto-file", label: "自动直接入库" }]} /></div>
-        {captureMode === "auto-file" && <div className="select-field"><span>自动入库目标</span>
-          <WorkbenchSelect label="自动入库目标" value={captureVaultId} onChange={setCaptureVaultId}
+      <div className="section-heading"><h2>{t("资料导入规则", "Import rules")}</h2></div>
+      <div className="form-grid two"><div className="select-field"><span>{t("采集后如何处理", "After import")}</span>
+        <WorkbenchSelect label={t("采集后如何处理", "After import")} value={captureMode} onChange={(value) => setCaptureMode(value as ImportPolicy["mode"])}
+          options={[{ value: "manual", label: t("先放待整理", "Review before filing") }, { value: "auto-file", label: t("自动直接入库", "File automatically") }]} /></div>
+        {captureMode === "auto-file" && <div className="select-field"><span>{t("自动入库目标", "File to")}</span>
+          <WorkbenchSelect label={t("自动入库目标", "File to")} value={captureVaultId} onChange={setCaptureVaultId}
             options={vaults?.vaults.map((vault) => ({ value: vault.id, label: vault.id })) ?? []} /></div>}
-        <div className="select-field"><span>原文默认归属</span><WorkbenchSelect label="原文默认归属" value={captureAuthorship}
+        <div className="select-field"><span>{t("原文默认归属", "Default attribution")}</span><WorkbenchSelect label={t("原文默认归属", "Default attribution")} value={captureAuthorship}
           onChange={(value) => setCaptureAuthorship(value as ImportPolicy["defaultAuthorship"])}
-          options={[{ value: "unknown", label: "待确认" }, { value: "self", label: "本人原创" },
-            { value: "third_party", label: "第三方文章" }]} /></div></div>
+          options={[{ value: "unknown", label: t("待确认", "Unconfirmed") }, { value: "self", label: t("本人原创", "My own work") },
+            { value: "third_party", label: t("第三方文章", "Third-party work") }]} /></div></div>
       <div className="action-row"><button className="primary-button" disabled={captureBusy || (captureMode === "auto-file" && !captureVaultId)}
-        onClick={() => void saveCapturePolicy()}>保存采集设置</button>{captureMessage && <span className="inline-message" role="status">{captureMessage}</span>}</div>
+        onClick={() => void saveCapturePolicy()}>{t("保存采集设置", "Save import rules")}</button>{captureMessage && <span className="inline-message" role="status">{noticeText(captureMessage)}</span>}</div>
     </section>
     <section className="panel-card" id="vault-connections">
-      <div className="section-heading"><div><span className="overline">CONNECTIONS</span><h2>知识库连接</h2></div><span className="count-pill">{vaults?.vaults.length ?? 0} 个</span></div>
-      <p className="muted">内置库首次运行自动建立；外部库连接本机原目录。笔记在 Obsidian 编辑，网页负责浏览和索引。</p>
+      <div className="section-heading"><h2>{t("知识库连接", "Knowledge base connections")}</h2><span className="count-pill">{t(`${vaults?.vaults.length ?? 0} 个`, String(vaults?.vaults.length ?? 0))}</span></div>
+      <p className="muted">{t("内置库首次运行自动建立；外部库连接本机原目录。笔记在 Obsidian 编辑，网页负责浏览和索引。", "Wenmai creates a built-in knowledge base on first launch. You can also connect an existing local vault. Edit notes in Obsidian and browse or index them in Wenmai.")}</p>
       <div className="vault-list">{vaults?.vaults.map((vault) => {
         const stats = overview?.vaults.find((item) => item.id === vault.id);
         return <div className="vault-row knowledge-connection" key={vault.id}>
           <div className="vault-symbol">{vault.kind === "built-in" ? "◆" : "◇"}</div>
-          <div className="vault-meta"><strong>{vault.id} {vault.isDefault && <span className="tag success">默认入库</span>}</strong>
-            <small>{vault.kind === "built-in" ? "内置知识库" : "外部 Obsidian vault"} · {vault.path}</small>
-            <small>{stats ? `${stats.sources} 篇来源 · ${stats.notes} 篇笔记 · 库内分析文件 ${stats.confirmedAnalyses} · ${new Date(stats.indexedAt).toLocaleString("zh-CN")}` : "等待索引"}</small>
-            {stats && <small>{stats.readable ? "可读取" : "无法读取"} · {stats.writable ? "可写入来源" : "无法写入来源"} · {stats.watching ? "监听文件变化" : "读取时检查变化"}</small>}
-            {!!stats?.errors.length && <small className="inline-message error">{stats.errors.length} 项读取异常：{stats.errors[0]}</small>}</div>
+          <div className="vault-meta"><strong>{vault.id} {vault.isDefault && <span className="tag success">{t("默认入库", "Default")}</span>}</strong>
+            <small>{vault.kind === "built-in" ? t("内置知识库", "Built-in knowledge base") : t("外部 Obsidian vault", "External Obsidian vault")} · {vault.path}</small>
+            <small>{stats ? t(`${stats.sources} 篇来源 · ${stats.notes} 篇笔记 · 库内分析文件 ${stats.confirmedAnalyses} · ${new Date(stats.indexedAt).toLocaleString(locale)}`,
+              `Sources: ${stats.sources}, notes: ${stats.notes}, analyses: ${stats.confirmedAnalyses}. Indexed ${new Date(stats.indexedAt).toLocaleString(locale)}`) : t("等待索引", "Waiting to index")}</small>
+            {stats && <small>{stats.readable ? t("可读取", "Readable") : t("无法读取", "Unreadable")} · {stats.writable ? t("可写入来源", "Can file sources") : t("无法写入来源", "Cannot file sources")} · {stats.watching ? t("监听文件变化", "Watching for changes") : t("读取时检查变化", "Checks for changes when opened")}</small>}
+            {!!stats?.errors.length && <small className="inline-message error">{t(`${stats.errors.length} 项读取异常：`, `Read errors: ${stats.errors.length}. `)}{locale === "en" ? indexIssueEnglish(stats.errors[0]) : stats.errors[0]}</small>}</div>
           <div className="knowledge-connection-actions">
-            <label><input type="checkbox" aria-label={`${vault.id} 入库后自动维护`} checked={maintenanceOverrides[vault.id] ?? vault.autoMaintain}
-              disabled={busy} onChange={(event) => void setAutoMaintain(vault.id, event.currentTarget.checked)} />入库后自动维护</label>
-            {!vault.isDefault && <button className="text-button" disabled={busy} onClick={() => void makeDefault(vault.id)}>设为默认</button>}
-            <button className="text-button" disabled={busy} onClick={() => void rescan(vault.id)}>重新索引</button>
-            {vault.kind === "external" && <button className="text-button" disabled={busy} onClick={() => void disconnect(vault.id)}>断开连接</button>}
+            <label><input type="checkbox" aria-label={t(`${vault.id} 入库后自动维护`, `Maintain ${vault.id} automatically after filing`)} checked={maintenanceOverrides[vault.id] ?? vault.autoMaintain}
+              disabled={busy} onChange={(event) => void setAutoMaintain(vault.id, event.currentTarget.checked)} />{t("入库后自动维护", "Maintain automatically after filing")}</label>
+            {!vault.isDefault && <button className="text-button" disabled={busy} onClick={() => void makeDefault(vault.id)}>{t("设为默认", "Make default")}</button>}
+            <button className="text-button" disabled={busy} onClick={() => void rescan(vault.id)}>{t("重新索引", "Reindex")}</button>
+            {vault.kind === "external" && <button className="text-button" disabled={busy} onClick={() => void disconnect(vault.id)}>{t("断开连接", "Disconnect")}</button>}
           </div>
         </div>;
       })}</div>
-      <p className="muted">启用后，新入库资料进入单 CLI 串行队列；分析结论为 compile_now 且校验通过时直接写入知识笔记。</p>
+      <p className="muted">{t("开启后，逐篇分析新入库资料。适合整理且校验通过的内容会写入知识笔记。", "Analyzes newly filed sources one at a time and writes validated findings to knowledge notes.")}</p>
+      <details className="muted"><summary>{t("查看自动维护规则", "Automatic maintenance rules")}</summary>
+        <p>{t("单个 Claude CLI 逐篇处理。分析结论为 compile_now 且校验通过时直接写入知识笔记。", "A single Claude CLI process runs each task in order. A validated compile_now result is written directly to knowledge notes.")}</p>
+      </details>
     </section>
     <section className="panel-card">
-      <div className="section-heading"><div><span className="overline">CONNECT</span><h2>连接已有知识库</h2></div></div>
-      <p className="muted">填写本机 Obsidian vault 目录。没有 OCF 元数据时会先预览新增的文件；原有笔记不会改写或复制。</p>
-      <div className="form-grid two"><label>知识库 ID<input value={id} onChange={(event) => { setId(event.target.value); setPlannedChanges(null); }} placeholder="research" /></label>
-        <label>外部 vault 路径<input value={path} onChange={(event) => { setPath(event.target.value); setPlannedChanges(null); }} placeholder="/Users/you/Documents/My Vault" /></label></div>
-      {plannedChanges && <div className="notice"><strong>采用前预览</strong><p>将在所选目录中新建：</p><ul>{plannedChanges.map((change) => <li key={change}>{change}</li>)}</ul>
-        <p>现有笔记不改写。</p><button className="primary-button" disabled={busy} onClick={() => void add(true)}>确认连接此目录</button></div>}
-      <div className="action-row"><button className="primary-button" disabled={busy || !id.trim() || !path.trim()} onClick={() => void add(false)}>连接知识库</button>
-        {message && <span className="inline-message" role="status">{message}</span>}</div>
+      <div className="section-heading"><h2>{t("连接已有知识库", "Connect a knowledge base")}</h2></div>
+      <p className="muted">{t("填写本机 Obsidian 知识库的文件夹路径。首次连接时可预览将新增的文件。", "Enter the folder path of an Obsidian vault on this device. You can preview any files Wenmai will add.")}</p>
+      <div className="form-grid two"><label>{t("知识库 ID", "Knowledge base ID")}<input value={id} onChange={(event) => { setId(event.target.value); setPlannedChanges(null); }} placeholder="research" /></label>
+        <label>{t("外部 vault 路径", "Vault folder path")}<input value={path} onChange={(event) => { setPath(event.target.value); setPlannedChanges(null); }} placeholder="/Users/you/Documents/My Vault" /></label></div>
+      {plannedChanges && <div className="notice"><strong>{t("采用前预览", "Preview changes")}</strong><p>{t("将在所选目录中新建：", "Files to be created in the selected folder")}</p><ul>{plannedChanges.map((change) => <li key={change}>{change}</li>)}</ul>
+        <p>{t("现有笔记不改写。", "Existing notes are kept as they are.")}</p><button className="primary-button" disabled={busy} onClick={() => void add(true)}>{t("确认连接此目录", "Confirm connection")}</button></div>}
+      <div className="action-row"><button className="primary-button" disabled={busy || !id.trim() || !path.trim()} onClick={() => void add(false)}>{t("连接知识库", "Connect")}</button>
+        {message && <span className="inline-message" role="status">{noticeText(message)}</span>}</div>
     </section>
   </div>;
 }

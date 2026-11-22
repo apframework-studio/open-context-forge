@@ -194,7 +194,7 @@ export class ArticleStore {
       !realpathSync(target).startsWith(`${vault.path}${sep}`)) throw new ArticleError("SOURCE_NOT_FOUND", 422);
   }
 
-  async create(input: ArticleCreateInput = {}): Promise<ArticleState> {
+  async create(input: ArticleCreateInput = {}, initialize?: (id: string) => void): Promise<ArticleState> {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new ArticleError("INVALID_ARTICLE", 422);
     const title = draftText(input.title ?? "", 300);
     const summary = draftText(input.summary ?? "", 2_000);
@@ -212,7 +212,10 @@ export class ArticleStore {
       await writeFile(join(project, "project.json"), `${JSON.stringify({ title: state.title, summary: state.summary, date: state.date, sourceRef: state.sourceRef }, null, 2)}\n`, { flag: "wx" });
       await writeFile(join(project, "versions", "0.md"), article, { flag: "wx" });
       await atomicWrite(join(project, "article.md"), article);
-      this.db.prepare("INSERT INTO articles (id, revision, status) VALUES (?, 0, 'draft')").run(id);
+      this.db.transaction(() => {
+        this.db.prepare("INSERT INTO articles (id, revision, status) VALUES (?, 0, 'draft')").run(id);
+        initialize?.(id);
+      })();
       return state;
     } catch (error) {
       await rm(project, { recursive: true, force: true });
@@ -227,7 +230,8 @@ export class ArticleStore {
     const project = this.project(id);
     const input = JSON.parse(await readFile(join(project, "project.json"), "utf8")) as ArticleInput;
     const markdown = bodyOf(await readFile(join(project, "article.md"), "utf8"));
-    return { id, revision: row.revision, status: row.status, markdown, ...input, sourceRef: input.sourceRef ?? null };
+    return { id, revision: row.revision, status: row.status, markdown, ...input,
+      title: input.title ?? "", summary: input.summary ?? "", date: input.date ?? "", sourceRef: input.sourceRef ?? null };
   }
 
   async list(includeTrashed = false): Promise<ArticleListItem[]> {
@@ -339,9 +343,7 @@ export class ArticleStore {
     const state = await this.get(id);
     if (state.revision !== expectedRevision) throw new ArticleError("REVISION_CONFLICT", 409);
     if (state.status === "final") return state;
-    if (!state.title || !state.summary || !/^\d{4}-\d{2}-\d{2}$/.test(state.date)) {
-      throw new ArticleError("ARTICLE_METADATA_REQUIRED", 422);
-    }
+    if (!state.title.trim()) throw new ArticleError("ARTICLE_METADATA_REQUIRED", 422);
     if (!state.markdown.replace(/^#{1,6}\s+.*$/gm, "").trim()) {
       throw new ArticleError("ARTICLE_CHECK_FAILED", 422);
     }
@@ -352,6 +354,8 @@ export class ArticleStore {
     } catch {
       throw new ArticleError("ARTICLE_CHECK_FAILED", 422);
     }
-    return this.writeRevision(state, state.markdown, "final");
+    const today = new Date();
+    const date = state.date || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    return this.writeRevision({ ...state, date }, state.markdown, "final");
   }
 }

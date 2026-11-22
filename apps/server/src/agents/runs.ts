@@ -7,7 +7,7 @@ export interface AgentRun {
   context?: WritingTurnContext;
   id: string; articleId: string; profileId: string; assistantMessageId: string;
   status: "running" | "waiting_permission" | "completed" | "failed" | "cancelled" | "interrupted";
-  text: string; activity: string; tools: AgentTool[]; permissions: AgentPermission[];
+  text: string; finalAnswer?: string; activity: string; tools: AgentTool[]; permissions: AgentPermission[];
   errorCode: string | null; createdAt: string; updatedAt: string; seq: number;
 }
 export const isActive = (run: AgentRun) => run.status === "running" || run.status === "waiting_permission";
@@ -139,6 +139,7 @@ export class AgentRuns {
       if (!result.text.trim()) throw new Error("AGENT_RESPONSE_INVALID");
       this.clearPermissions(run);
       run.text = result.text; run.status = "completed"; run.activity = "已完成";
+      if (result.finalAnswer !== undefined) run.finalAnswer = result.finalAnswer;
       this.db.prepare("UPDATE agent_conversations SET acp_session_id = ? WHERE id = ?").run(result.sessionId, conversationId);
       this.save(run, { type: "completed" });
       logRun(run, "completed");

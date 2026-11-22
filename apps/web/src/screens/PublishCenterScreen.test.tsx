@@ -1,42 +1,32 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { PublishCenterTable } from "./PublishCenterScreen";
+import { ArticleExport } from "./ArticleExport";
 import { PublishAssets, PublishImageWorkspace } from "./PublishAssets";
 import { PublishChannels } from "./PublishChannels";
-import type { Article, PublishAsset, PublishCenterSummary } from "../api";
+import type { Article, PublishAsset } from "../api";
 
 const article: Article = { id: "article-1", title: "本地知识整理体验检查", summary: "文章摘要", date: "2026-11-07",
   sourceRef: null, revision: 4, status: "final", markdown: "正文" };
 const asset: PublishAsset = { id: "image-1", articleId: article.id, group: "vertical", name: "首页图.png",
   mime: "image/png", origin: "upload", createdAt: "2026-11-07T00:00:00Z", usedBy: ["weibo", "jike"] };
 
-test("publish center renders dynamic channel columns and per-article readiness", () => {
-  const summary: PublishCenterSummary = { channels: [{ id: "weibo", label: "微博" }, { id: "jike", label: "即刻" }],
-    items: [{ id: article.id, title: article.title, summary: article.summary, revision: 4, updatedAt: "2026-11-07T00:00:00Z",
-      channels: { weibo: { status: "ready", stale: false }, jike: { status: "unplanned", stale: false } } }] };
-  const html = renderToStaticMarkup(createElement(PublishCenterTable, { summary, onOpen: () => undefined }));
-  expect(html).toContain("本地知识整理体验检查");
-  expect(html).toContain("微博");
-  expect(html).toContain("即刻");
-  expect(html).toContain("待发布");
-  expect(html).toContain("未计划");
+test("export removes the repeated article title after an introduction and keeps other content", () => {
+  const markdown = `文章的引言。\n\n# **${article.title}**\n\n# 独立章节\n\n\`\`\`md\n# ${article.title}\n\`\`\``;
+  const html = renderToStaticMarkup(createElement(ArticleExport, {
+    article: { ...article, markdown }, assets: [], selectedIds: [], onSelectionChange: () => {}, onOpenAssets: () => {},
+  }));
+  expect(html.match(/<h1>/g)).toHaveLength(2);
+  expect(html).toContain("<p>文章的引言。</p>");
+  expect(html).toContain("<h1>独立章节</h1>");
+  expect(html).toContain(`<code class="language-md"># ${article.title}`);
 });
 
-test("an article without a selected channel does not imply every channel is required", () => {
-  const summary: PublishCenterSummary = { channels: [{ id: "weibo", label: "微博" }, { id: "jike", label: "即刻" }],
-    items: [{ id: article.id, title: article.title, summary: article.summary, revision: 4, updatedAt: "2026-11-07T00:00:00Z",
-      channels: { weibo: { status: "unplanned", stale: false }, jike: { status: "unplanned", stale: false } } }] };
-  const html = renderToStaticMarkup(createElement(PublishCenterTable, { summary, onOpen: () => undefined }));
-  expect(html).toContain("未选择渠道");
-  expect(html).not.toContain("0/2");
-});
-
-test("assets page explains the key gate and names channels affected by image deletion", () => {
+test("image library shows the existing illustration without exposing channel names", () => {
   const html = renderToStaticMarkup(createElement(PublishAssets, { article, assets: [asset], onChanged: async () => undefined }));
   expect(html).toContain("首页图.png");
-  expect(html).toContain("微博");
-  expect(html).toContain("即刻");
+  expect(html).not.toContain("微博");
+  expect(html).not.toContain("即刻");
   const workspace = renderToStaticMarkup(createElement(PublishImageWorkspace, { article }));
   expect(workspace).toContain("连接图像服务后即可生成");
   expect(workspace).toContain("disabled");

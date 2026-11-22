@@ -1,4 +1,5 @@
 import type { Article } from "../api";
+import type { Locale } from "../locale";
 
 function lines(markdown: string): string[] {
   let fenced = false;
@@ -13,13 +14,22 @@ function headings(markdown: string): string[] {
   return lines(markdown).filter((line) => /^#{1,6}\s+/.test(line)).map((line) => line.replace(/^#{1,6}\s+/, "").replace(/[*_`]/g, "")).slice(0, 8);
 }
 
-export function buildImagePrompt(article: Pick<Article, "title" | "summary" | "markdown">, outline = ""): string {
+export function buildImagePrompt(article: Pick<Article, "title" | "summary" | "markdown">, outline = "", locale: Locale = "zh-CN"): string {
   const title = article.title.trim();
   const summary = article.summary.trim();
   const topics = [...new Set([...headings(article.markdown), ...headings(outline)].filter((heading) => heading !== title))].slice(0, 8);
   const outlinePoints = lines(outline).filter((line) => /^[-*+]\s+|^\d+[.)]\s+/.test(line))
     .map((line) => line.replace(/^([-*+]\s+|\d+[.)]\s+)/, "").replace(/[*_`]/g, "")).slice(0, 5);
   const body = lines(article.markdown).filter((line) => !/^#{1,6}\s+|^```|^---$/.test(line)).join(" ").slice(0, 240);
+  if (locale === "en") {
+    const parts = ["Create a cover image that can accompany this article when shared.", `Topic: ${title || "Current article"}`];
+    if (summary) parts.push(`Summary: ${summary}`);
+    if (topics.length) parts.push(`Sections: ${topics.join("; ")}`);
+    if (outlinePoints.length) parts.push(`Outline: ${outlinePoints.join("; ")}`);
+    if (body) parts.push(`Excerpt: ${body}`);
+    parts.push("Use visual elements grounded in the article. Keep the composition clear and leave room for a title. Use only the facts, figures, and people mentioned in the article.");
+    return parts.join("\n").slice(0, 4000);
+  }
   const parts = ["请制作一张适合社交渠道分享的文章封面图。", `主题：${title || "当前文章"}。`];
   if (summary) parts.push(`核心内容：${summary}。`);
   if (topics.length) parts.push(`文章结构：${topics.join("；")}。`);

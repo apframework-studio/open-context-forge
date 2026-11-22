@@ -30,10 +30,13 @@ export function registerImportRoutes(app: FastifyInstance, db: Database.Database
       }
       insertBatch(db, { ...batch, autoVaultId: policy.mode === "auto-file" ? policy.vault_id : null,
         defaultAuthorship: override as "self" | "third_party" | "unknown" | undefined ?? policy.default_authorship });
+      const filingJobIds: string[] = [];
       if (policy.mode === "auto-file" && policy.vault_id) {
-        for (const candidate of candidates) if (candidate.status === "ready") jobs.enqueue(batch.batchId, candidate.id, policy.vault_id);
+        for (const candidate of candidates) {
+          if (candidate.status === "ready") filingJobIds.push(jobs.enqueue(batch.batchId, candidate.id, policy.vault_id).id);
+        }
       }
-      return reply.code(201).send({ ...getBatch(db, batch.batchId), skippedFiles });
+      return reply.code(201).send({ ...getBatch(db, batch.batchId), skippedFiles, filingJobIds });
     } catch (error) {
       if (error instanceof ImportError) {
         const status = ["ARCHIVE_TOO_LARGE", "MANIFEST_TOO_LARGE", "TEXT_TOO_LARGE", "TOO_MANY_FILES"].includes(error.code) ? 413 : 422;

@@ -1,16 +1,19 @@
 import { useRef, useState } from "react";
+import { useLocale } from "./locale";
 
 interface Props { label: string; controls: string; value: number; min: number; max: number;
   onChange: (value: number) => void; onReset: () => void; className?: string }
 
 export function PaneResizeHandle({ label, controls, value, min, max, onChange, onReset, className = "" }: Props) {
+  const { t } = useLocale();
   const start = useRef<{ x: number; width: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const change = (next: number) => onChange(Math.max(min, Math.min(max, next)));
   function endDrag() { start.current = null; setDragging(false); }
   return <div role="separator" tabIndex={0} aria-orientation="vertical" aria-label={label} aria-controls={controls}
     aria-valuemin={Math.round(min)} aria-valuemax={Math.round(max)} aria-valuenow={Math.round(value)}
-    aria-valuetext={`${Math.round(value)} 像素`} title="拖动调整宽度 · 双击恢复自动布局 · 方向键微调"
+    aria-valuetext={t(`${Math.round(value)} 像素`, `${Math.round(value)} pixels`)}
+    title={t("拖动调整宽度 · 双击恢复自动布局 · 方向键微调", "Drag or use the arrow keys to resize. Double-click to reset.")}
     className={`knowledge-resize-handle ${className}`} data-dragging={dragging || undefined}
     onPointerDown={(event) => {
       if (event.button !== 0) return;

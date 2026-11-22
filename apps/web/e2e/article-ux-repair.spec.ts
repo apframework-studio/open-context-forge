@@ -17,9 +17,9 @@ test("adopted body can finish saving without a reload when its candidate ends in
   await createWithProposal(page);
   await page.getByRole("button", { name: "审阅正文草稿" }).click();
   await page.getByRole("dialog", { name: "采用智能体正文" }).getByRole("button", { name: "替换正文" }).click();
-  await page.getByRole("button", { name: "发布信息", exact: true }).click();
-  await page.getByLabel("公开摘要").fill("一段测试摘要");
-  await page.getByLabel("发布日期").fill("2026-11-07");
+  await page.getByRole("button", { name: "文章信息", exact: true }).click();
+  await page.getByLabel("文章摘要").fill("一段测试摘要");
+  await page.getByLabel("文章日期").fill("2026-11-07");
   await page.getByRole("button", { name: "完成设置" }).click();
   await expect(page.getByRole("button", { name: "定稿", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "保存草稿" })).toBeDisabled();
@@ -38,6 +38,33 @@ test("saved candidate does not return as pending after refresh when only termina
   await page.reload();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("检查保存状态");
   await expect(page.getByLabel("待采用正文预览")).toHaveCount(0);
+});
+
+test("the body count follows visible Markdown text and excludes the repeated article title", async ({ page }) => {
+  await createWithProposal(page);
+  const articleId = await page.evaluate(() => localStorage.getItem("ocf-last-article"));
+  const saved = await page.request.put(`/api/v1/articles/${articleId}/draft`, { headers: { "x-ocf-client": "1" }, data: {
+    markdown: "# **文章标题**\n\n## 小节\n\n- [x] **你好** [链接](https://example.com) 🎉\n\n| 甲 | 乙 |\n| --- | --- |\n| 丙 | 丁 |\n\n<!-- hidden -->",
+    title: "文章标题", expectedRevision: 0,
+  } });
+  expect(saved.ok(), await saved.text()).toBe(true);
+  await page.reload();
+  await expect(page.locator(".article-save-line")).toContainText("11 字");
+});
+
+test("finalization prompts for the title and body while a pending proposal remains separate", async ({ page }) => {
+  await createWithProposal(page);
+  const finalize = page.getByRole("button", { name: "定稿", exact: true });
+  const guide = page.getByRole("region", { name: "定稿准备" });
+  await expect(guide).toContainText("填写文章标题");
+  await expect(guide).toContainText("正文");
+  await finalize.click();
+  await expect(page.getByLabel("文章标题")).toBeFocused();
+
+  await page.getByLabel("文章标题").fill("正式文章");
+  await finalize.click();
+  await expect(page.locator(".article-save-line [role=status]")).toHaveText("定稿前请采用文章正文");
+  await expect(guide.getByRole("button", { name: "审阅并采用正文" })).toBeVisible();
 });
 
 test("a completed save does not claim newer edits are saved", async ({ page }) => {

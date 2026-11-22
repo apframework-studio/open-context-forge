@@ -25,6 +25,11 @@ test("ACP client forwards permission choices to the native agent", async () => {
   } }, command("permission"));
   expect(result.text).toBe("第一段，第二段。");
 });
+test("Codex final answer is available separately without losing the conversation text", async () => {
+  const result = await runAcp({ ...input, profileId: "codex-current" }, command("phases"));
+  expect(result.text).toBe("我会先读取资料。\n# 正文\n\n这是可以采用的文稿。");
+  expect(result).toHaveProperty("finalAnswer", "# 正文\n\n这是可以采用的文稿。");
+});
 test("ACP cancellation stops an in-flight process while retaining already emitted text", async () => {
   const controller = new AbortController();
   let partial = "";

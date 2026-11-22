@@ -21,11 +21,6 @@ test("article list keeps drafts in writing and supports recoverable batch deleti
   await page.getByRole("button", { name: "返回文章列表" }).click();
   await page.getByRole("textbox", { name: "搜索文章" }).fill(prefix);
   const first = rows.filter({ hasText: `${prefix}-A` });
-  await first.getByRole("button", { name: "删除", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "移入文章回收站" });
-  await expect(dialog).toContainText("已发布渠道的内容不会下线");
-  await dialog.getByRole("button", { name: "取消" }).click();
-  await expect(rows).toHaveCount(2);
   const before = (await first.boundingBox())!;
   await page.getByRole("checkbox", { name: "选择本页文章" }).check();
   const after = (await first.boundingBox())!;
@@ -33,10 +28,10 @@ test("article list keeps drafts in writing and supports recoverable batch deleti
   expect(after.y).toBe(before.y);
   const bulk = page.getByRole("toolbar", { name: "批量文章操作" });
   await expect(bulk).toContainText("已选择 2 篇");
-  await bulk.getByRole("button", { name: "批量删除" }).click();
-  await dialog.getByRole("button", { name: "移入回收站" }).click();
+  await bulk.getByRole("button", { name: "移入回收站", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("移入回收站，可随时恢复");
   await expect(rows).toHaveCount(0);
-  await page.getByRole("button", { name: "发布中心", exact: true }).click();
+  await page.getByRole("button", { name: "导出文章", exact: true }).click();
   await expect(page.getByText("暂无已定稿文章。")).toBeVisible();
   await page.getByRole("button", { name: "文章工作台", exact: true }).click();
   if (await page.getByRole("button", { name: "返回文章列表" }).count()) await page.getByRole("button", { name: "返回文章列表" }).click();

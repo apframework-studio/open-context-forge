@@ -1,0 +1,28 @@
+.topbar .workspace-language-toggle {
+  font-size: var(--ocf-size-meta);
+  font-weight: 600;
+  color: var(--ocf-secondary);
+  border-color: var(--ocf-border);
+  background: var(--ocf-surface);
+  border-radius: 7px;
+}
+
+.sidebar .brand small { white-space: normal; letter-spacing: normal; }
+
+.locale-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 20px;
+  font-size: var(--ocf-size-control);
+}
+
+@media (max-width: 460px) {
+  .topbar { gap: 6px; }
+  .topbar-actions { gap: 5px; }
+  .workspace-theme-switch button { padding-inline: 6px; }
+  .topbar .workspace-language-toggle { width: 28px; }
+  .topbar .local-indicator { display: none; }
+}

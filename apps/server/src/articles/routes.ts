@@ -1,13 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { extname } from "node:path";
 import { ArticleError, ArticleStore, type ArticleCreateInput, type ArticleDraftInput } from "./store.js";
+import { WritingContextError, type WritingContextStore } from "./writing-context.js";
 
 function handle(error: unknown) {
-  if (error instanceof ArticleError) return { status: error.statusCode, body: { error: error.code } };
+  if (error instanceof ArticleError || error instanceof WritingContextError) return { status: error.statusCode, body: { error: error.code } };
   return undefined;
 }
 
-export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore, isBusy?: (id: string) => boolean): void {
+export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore, writing: WritingContextStore, isBusy?: (id: string) => boolean): void {
   app.post<{ Body: { confirmed?: unknown; items?: unknown } }>("/api/v1/articles/trash/empty", { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
     try { return await store.emptyTrash(request.body?.confirmed, request.body?.items, isBusy); }
     catch (error) {
@@ -40,9 +41,11 @@ export function registerArticleRoutes(app: FastifyInstance, store: ArticleStore,
     }
   });
 
-  app.post<{ Body: ArticleCreateInput }>("/api/v1/articles", async (request, reply) => {
+  app.post<{ Body: ArticleCreateInput & { materials?: unknown } }>("/api/v1/articles", async (request, reply) => {
     try {
-      return reply.code(201).send(await store.create(request.body));
+      const materials = request.body?.materials;
+      const initialize = materials === undefined ? undefined : writing.prepareInitialContext(materials);
+      return reply.code(201).send(await store.create(request.body, initialize));
     } catch (error) {
       const result = handle(error);
       if (result) return reply.code(result.status).send(result.body);

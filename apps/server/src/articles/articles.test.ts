@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import Database from "better-sqlite3";
 import { createApp } from "../app.js";
 import type { AgentOptions } from "../agents/service.js";
@@ -225,6 +225,7 @@ test("creates an empty article first and collects public metadata while writing"
     const premature = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`,
       headers: { "x-ocf-client": "1" }, payload: { expectedRevision: 1 } });
     expect(premature.statusCode).toBe(422);
+    expect(premature.json()).toMatchObject({ error: "ARTICLE_METADATA_REQUIRED" });
 
     const metadata = await app.inject({ method: "PUT", url: `/api/v1/articles/${created.id}/draft`,
       headers: { "x-ocf-client": "1" }, payload: { title: "正式标题", summary: "公开摘要", date: "2026-10-24", expectedRevision: 1 } });
@@ -234,6 +235,7 @@ test("creates an empty article first and collects public metadata while writing"
     const final = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`,
       headers: { "x-ocf-client": "1" }, payload: { expectedRevision: 2 } });
     expect(final.statusCode).toBe(200);
+    expect(final.json()).toMatchObject({ summary: "公开摘要", date: "2026-10-24" });
     expect((await app.inject({ method: "GET", url: "/api/v1/articles" })).json().items[0].stage).toBe("complete");
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
@@ -292,6 +294,28 @@ test("finalizing a checked article preserves its revision and later edits return
     expect(readFileSync(join(project, "versions", "2.md"), "utf8")).toBe(finalized);
     expect(readFileSync(join(project, "article.md"), "utf8")).toContain("draft: true");
   } finally { await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test("finalizing without a summary or date saves the current local date in the final revision", async () => {
+  const { dataDir, app } = await setup();
+  vi.setSystemTime(new Date(2030, 0, 2, 0, 10));
+  try {
+    const created = (await app.inject({ method: "POST", url: "/api/v1/articles", headers: clientHeaders,
+      payload: { title: "可定稿的标题" } })).json();
+    const draft = await app.inject({ method: "PUT", url: `/api/v1/articles/${created.id}/draft`, headers: clientHeaders,
+      payload: { markdown: "# 可定稿的标题\n\n这是定稿正文。", expectedRevision: 0 } });
+    expect(draft.json()).toMatchObject({ date: "", summary: "", revision: 1 });
+
+    const final = await app.inject({ method: "POST", url: `/api/v1/articles/${created.id}/finalize`,
+      headers: clientHeaders, payload: { expectedRevision: 1 } });
+    expect(final.statusCode, final.body).toBe(200);
+    expect(final.json()).toMatchObject({ status: "final", date: "2030-01-02", summary: "", revision: 2 });
+    const project = join(dataDir, "writing-projects", created.id);
+    expect(readFileSync(join(project, "versions", "2.md"), "utf8")).toContain("date: '2030-01-02'");
+    expect((await app.inject({ method: "GET", url: `/api/v1/articles/${created.id}` })).json()).toMatchObject({
+      date: "2030-01-02", summary: "",
+    });
+  } finally { vi.useRealTimers(); await app.close(); rmSync(dataDir, { recursive: true, force: true }); }
 });
 
 test("writer check blocks finalizing unfinished text", async () => {

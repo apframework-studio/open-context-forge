@@ -25,7 +25,7 @@ test("accepted runs expose partial text before completion and persist it across 
   const c = await setup(async (input) => {
     input.onEvent?.({ type: "text", text: "正在写第一段" });
     await gate;
-    return { text: "正在写第一段，文章完成。", sessionId: "acp-session" };
+    return { text: "正在写第一段，文章完成。", finalAnswer: "文章完成。", sessionId: "acp-session" };
   });
   try {
     const started = await c.app.inject({ method: "POST", url: `${c.base}/runs`, headers,
@@ -43,7 +43,10 @@ test("accepted runs expose partial text before completion and persist it across 
     expect(done.messages.at(-1).content).toBe("正在写第一段，文章完成。");
     await c.app.close();
     const reopened = createApp({ dataDir: c.dataDir, agentOptions: { claudePath: "/fake/claude", environment: {} } });
-    try { expect((await reopened.inject({ url: `${c.base}?profileId=claude-current` })).json().run.text).toBe("正在写第一段，文章完成。"); }
+    try {
+      expect((await reopened.inject({ url: `${c.base}?profileId=claude-current` })).json().run)
+        .toMatchObject({ text: "正在写第一段，文章完成。", finalAnswer: "文章完成。" });
+    }
     finally { await reopened.close(); }
   } finally { release(); await c.app.close(); rmSync(c.dataDir, { recursive: true, force: true }); }
 });

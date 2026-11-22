@@ -1,3 +1,4 @@
+import { englishErrorMessages } from "./api-errors-en";
 import type { CaptureCandidate, WritingTurnContext } from "@ocf/contracts";
 export type { WritingMaterialRef, WritingMaterial, WritingMaterialDetail, WritingSelection, WritingContext,
   WritingTurnSource, WritingTurnContext, WritingOutline, WriterSkillStatus, WritingProposal, WritingProposals } from "@ocf/contracts";
@@ -11,7 +12,7 @@ export interface Vault {
 }
 export interface VaultList { defaultVaultId: string; vaults: Vault[] }
 export interface BrandingStatus { customized: boolean; revision: string | null }
-export interface ImportBatch { batchId: string; skippedFiles?: number; candidates: (Omit<CaptureCandidate, "status"> & { status: "ready" | "processing" | "incomplete" | "imported" | "failed"; errorCode?: string;
+export interface ImportBatch { batchId: string; skippedFiles?: number; filingJobIds?: string[]; candidates: (Omit<CaptureCandidate, "status"> & { status: "ready" | "processing" | "incomplete" | "imported" | "failed"; errorCode?: string;
   vaultId?: string; snapshot?: string; fingerprint?: string;
   vaults?: ImportVaultMembership[] })[] }
 export interface ImportVaultMembership { vaultId: string; snapshot: string; fingerprint: string; analysisSyncError: boolean }
@@ -138,7 +139,7 @@ export interface AgentMessage { id: string; role: "user" | "assistant"; content:
 export interface AgentRun {
   id: string; articleId: string; profileId: string; assistantMessageId: string;
   status: "running" | "waiting_permission" | "completed" | "failed" | "cancelled" | "interrupted";
-  text: string; activity: string; tools: { id: string; title: string; status: string; detail?: string }[];
+  text: string; finalAnswer?: string; activity: string; tools: { id: string; title: string; status: string; detail?: string }[];
   permissions: { id: string; title: string; options: { optionId: string; name: string; kind: string }[] }[];
   errorCode: string | null; createdAt: string; updatedAt: string; seq: number;
   context?: WritingTurnContext;
@@ -159,7 +160,7 @@ const errorMessages: Record<string, string> = {
   INCOMPLETE_SOURCE: "这份资料不完整，暂不能写入知识库",
   VAULT_IMPORT_FAILED: "资料写入知识库失败，可稍后重试",
   ARTICLE_CHECK_FAILED: "文章还有未完成内容或无效图片，请修改后再定稿",
-  ARTICLE_METADATA_REQUIRED: "定稿前请填写标题、公开摘要和发布日期",
+  ARTICLE_METADATA_REQUIRED: "定稿前请填写文章标题",
   ARTICLE_TRASHED: "文章已在回收站，请先恢复",
   ARTICLE_TRASH_CHANGED: "回收站内容已变化，请检查列表后重新确认",
   ARTICLE_BUSY: "文章仍有任务正在运行，请等待完成后再永久删除",
@@ -268,7 +269,8 @@ export class ApiError extends Error {
     super(errorMessages[code] ?? code);
   }
 }
-export const agentErrorMessage = (code: string) => errorMessages[code] ?? code;
+export const agentErrorMessage = (code: string, locale: "zh-CN" | "en" = "zh-CN") =>
+  (locale === "en" ? englishErrorMessages : errorMessages)[code] ?? code;
 
 export async function api<T>(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const method = options.method ?? "GET";

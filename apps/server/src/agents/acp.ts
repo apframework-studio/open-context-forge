@@ -3,11 +3,16 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { client, methods, ndJsonStream, PROTOCOL_VERSION, type SessionNotification } from "@agentclientprotocol/sdk";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientCapabilities, type SessionNotification } from "@agentclientprotocol/sdk";
 import { childEnvironment, type AgentRunInput, type AgentRunner } from "./runner.js";
 
 const require = createRequire(import.meta.url);
 export interface AcpCommand { executable: string; args: string[] }
+
+function codexMessagePhase(meta: Record<string, unknown> | null | undefined): "commentary" | "final_answer" | undefined {
+  const air = (meta?.jetbrains as { air?: { phase?: unknown } } | undefined)?.air;
+  return air?.phase === "commentary" || air?.phase === "final_answer" ? air.phase : undefined;
+}
 
 function commandFor(input: AgentRunInput): AcpCommand {
   const name = input.profileId === "codex-current" ? "codex-acp" : "claude-agent-acp";
@@ -41,6 +46,7 @@ export async function runAcp(input: AgentRunInput, command = commandFor(input)):
   delete env.CLAUDECODE;
   const child = spawn(command.executable, command.args, { cwd: input.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
   let text = "", sessionId = "", replaying = false, diagnostics = "";
+  let finalAnswer: string | undefined;
   let failure = "AGENT_RUN_FAILED";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => { diagnostics = (diagnostics + chunk).slice(-4000); });
@@ -51,6 +57,13 @@ export async function runAcp(input: AgentRunInput, command = commandFor(input)):
       if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
         text += update.content.text;
         if (text.length > 2_000_000) { failure = "AGENT_OUTPUT_TOO_LARGE"; connection.close(new Error(failure)); return; }
+        if (input.profileId === "codex-current") {
+          const phase = codexMessagePhase(update._meta);
+          if (phase) {
+            finalAnswer ??= "";
+            if (phase === "final_answer") finalAnswer += update.content.text;
+          }
+        }
         input.onEvent?.({ type: "text", text: update.content.text });
       } else if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
         const detail = update.content?.flatMap((part) => part.type === "content" && part.content.type === "text" ? [part.content.text] : []).join("\n").slice(0, 8000);
@@ -76,8 +89,10 @@ export async function runAcp(input: AgentRunInput, command = commandFor(input)):
   try {
     if (input.signal?.aborted) throw new Error("AGENT_CANCELLED");
     input.onEvent?.({ type: "activity", text: "正在连接本机智能体…" });
+    // The Codex adapter sends message phases through this ACP extension.
+    const clientCapabilities: ClientCapabilities = input.profileId === "codex-current" ? { _meta: { jetbrains: { air: { version: 1 } } } } : {};
     const init = await connection.agent.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {}, clientInfo: { name: "wenmai", version: "1" } });
+      clientCapabilities, clientInfo: { name: "wenmai", version: "1" } });
     const meta = input.profileId === "codex-current" ? undefined : { claudeCode: { options: {
       settings: { disableAllHooks: true }, allowDangerouslySkipPermissions: false,
     } } };
@@ -96,7 +111,7 @@ export async function runAcp(input: AgentRunInput, command = commandFor(input)):
     const result = await connection.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: input.prompt }] });
     if (input.signal?.aborted || result.stopReason === "cancelled") throw new Error("AGENT_CANCELLED");
     if (!text.trim()) throw new Error("AGENT_RESPONSE_INVALID");
-    return { text, sessionId };
+    return { text, sessionId, ...(finalAnswer !== undefined ? { finalAnswer } : {}) };
   } catch (error) {
     if (input.signal?.aborted) throw new Error("AGENT_CANCELLED");
     const message = error instanceof Error ? error.message : "";

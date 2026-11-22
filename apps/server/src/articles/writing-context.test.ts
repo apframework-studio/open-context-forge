@@ -35,6 +35,24 @@ async function setup() {
 }
 const refs = [{ vaultId: "one", path: "Note.md" }, { vaultId: "two", path: "Note.md" }];
 
+test("creates a draft and its selected sources together", async () => {
+  const f = await setup();
+  try {
+    const create = (materials: typeof refs) => f.app.inject({
+      method: "POST", url: "/api/v1/articles", headers, payload: { materials },
+    });
+    const rejected = await create([refs[0], { vaultId: "two", path: "Missing.md" }]);
+    expect(rejected.statusCode).toBe(422);
+    expect(await f.articles.list()).toHaveLength(1);
+
+    const created = await create(refs);
+    expect(created.statusCode).toBe(201);
+    const context = await f.store.get(created.json().id);
+    expect(context.materials).toMatchObject(refs.map((ref, index) => ({ ...ref, id: `S${index + 1}` })));
+    expect(await f.store.material(created.json().id, "S2")).toMatchObject({ markdown: "# two\nline two\nline three\n" });
+  } finally { await f.close(); }
+});
+
 test("newly browsable text formats can be referenced while PDF bytes cannot become writing text", async () => {
   const f = await setup();
   try {

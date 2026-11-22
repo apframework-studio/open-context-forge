@@ -36,7 +36,7 @@ test("source row shows compact origin, opens body, and adds vault membership", a
   await page.getByRole("tab", { name: /全部资料/ }).click();
   const filed = page.locator(".source-row").filter({ hasText: title });
   await expect(filed.locator(".tag.success")).toContainText("已入库");
-  await filed.getByRole("button", { name: "追加" }).click();
+  await filed.getByRole("button", { name: "添加到知识库" }).click();
   const filedDialog = page.getByRole("dialog", { name: "添加到知识库" });
   await expect(filedDialog.getByRole("checkbox", { name: /default/ })).toBeChecked();
   await expect(filedDialog.getByRole("checkbox", { name: /default/ })).toBeDisabled();
@@ -91,15 +91,15 @@ test("analysis remains a background job and its completed card reappears after n
   const analyzedRow = page.locator(".source-row").filter({ hasText: "后台分析资料" });
   await analyzedRow.getByRole("button", { name: "后台分析资料" }).click();
   await analyzedRow.getByRole("button", { name: "生成智能摘要" }).click();
-  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("未分析");
+  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("生成中");
   await page.getByRole("button", { name: "知识库", exact: true }).click();
   await page.getByRole("button", { name: /资料与分析/ }).click();
-  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("未分析");
+  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("生成中");
   job!.status = "completed";
   analyzedEver = true;
   const card = page.getByLabel("后台分析资料 智能摘要");
   await expect(card).toContainText("后台分析完成的摘要", { timeout: 7000 });
-  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("已分析");
+  await expect(page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-analysis-state")).toHaveText("已生成");
   const detail = page.locator(".source-row").filter({ hasText: "后台分析资料" }).locator(".source-detail");
   const original = detail.getByRole("region", { name: "后台分析资料 资料正文" });
   const originalBox = await original.boundingBox();
@@ -141,21 +141,21 @@ test("source workbench keeps a cross-batch pending list and allows shelving", as
   await expect(page.getByText("工作台资料")).toBeVisible();
 });
 
-test("source workbench consolidates its headings and counts above the table", async ({ page }) => {
+test("the empty pending view leads to existing sources without showing unused table controls", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 800 });
+  await page.route("**/api/v1/imports/items?view=pending&*", (route) => route.fulfill({
+    json: { total: 0, page: 1, pageSize: 20, counts: { all: 1, pending: 0, recent: 1, trash: 0, autoQueued: 0 }, items: [] },
+  }));
   await page.goto("/");
   const board = page.getByRole("region", { name: "资料列表" });
-  await expect(page.locator(".page-sources")).toHaveCount(1);
-  await expect(page.locator(".page-sources > h1")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "资料处理台" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "资料列表" })).toHaveCount(0);
-  await expect(page.getByText("导入资料、检查来源，形成可回查的分析。" )).toBeVisible();
-  await expect(board.getByRole("tab", { name: /全部资料/ })).toBeVisible();
-  await expect(board.getByText(/当前结果/)).toBeVisible();
-  await expect(page.locator(".source-summary")).toHaveCount(0);
-  expect((await page.locator(".source-list-head").boundingBox())!.y).toBeLessThan(260);
-  await page.getByRole("button", { name: /入库规则/ }).click();
-  await expect(page.getByLabel("采集后如何处理")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "资料与分析" })).toBeVisible();
+  await expect(board.getByRole("heading", { name: "没有待整理的资料" })).toBeVisible();
+  await expect(board.getByRole("textbox", { name: "搜索资料" })).toHaveCount(0);
+  await expect(board.getByRole("checkbox", { name: "选择当前页" })).toHaveCount(0);
+  await expect(board.getByRole("button", { name: "下一页" })).toHaveCount(0);
+  expect((await board.boundingBox())!.height).toBeLessThan(360);
+  await board.getByRole("button", { name: "查看全部资料" }).click();
+  await expect(board.getByRole("tab", { name: /全部资料/ })).toHaveAttribute("aria-selected", "true");
 });
 
 test("source workbench keeps the compact controls inside a narrow viewport", async ({ page }) => {
@@ -360,7 +360,7 @@ test("source workbench links to capture settings instead of showing a future fea
   await page.goto("/");
   await expect(page.getByText("浏览器一键采集 · 后续接入")).toHaveCount(0);
   await page.getByRole("button", { name: "采集设置" }).click();
-  await expect(page.getByRole("heading", { name: "浏览器一键采集" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "资料导入规则" })).toBeVisible();
   await expect(page.getByLabel("采集后如何处理")).toBeVisible();
   await expect(page.getByRole("button", { name: "保存采集设置" })).toBeVisible();
   await page.getByRole("button", { name: "保存采集设置" }).click();

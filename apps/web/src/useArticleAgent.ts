@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api, agentActive, type AgentHistory, type AgentRun, type WritingSelection } from "./api";
+import { useLocale, type LocalizedError } from "./locale";
 
 // The server owns execution. Unmounting only closes the UI subscription.
 export function useArticleAgent(articleId: string, profileId: string) {
+  const { errorText } = useLocale();
   const [history, setHistory] = useState<AgentHistory | null>(null);
   const [loadedKey, setLoadedKey] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<LocalizedError | null>(null);
   const [sending, setSending] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -25,7 +27,8 @@ export function useArticleAgent(articleId: string, profileId: string) {
   useEffect(() => {
     let disposed = false;
     let readVersion = 0;
-    setHistory(null); setError(""); setSending(false); setConnecting(false);
+    setHistory(null); setError(null); setSending(false); setConnecting(false);
+    if (!profileId) return;
     const refresh = async () => {
       const version = ++readVersion;
       try {
@@ -37,7 +40,7 @@ export function useArticleAgent(articleId: string, profileId: string) {
             messages: value.messages.map((item) => item.id === newer.assistantMessageId ? { ...item, content: newer.text } : item) } : value;
         });
         setLoadedKey(key);
-      } catch (cause) { if (!disposed && version === readVersion) setError(cause instanceof Error ? cause.message : "对话读取失败"); }
+      } catch (cause) { if (!disposed && version === readVersion) setError([cause, "对话读取失败", "Could not load the conversation"]); }
     };
     const invalidate = (event: Event) => { if ((event as CustomEvent<string>).detail === key) void refresh(); };
     window.addEventListener("ocf-agent-run-started", invalidate);
@@ -56,7 +59,7 @@ export function useArticleAgent(articleId: string, profileId: string) {
     stream.addEventListener("removed", () => {
       if (disposed || current.current !== ownership) return;
       const message = "文章已被永久删除，请返回文章列表。";
-      setError(message); setConnecting(false);
+      setError([undefined, message, "This article was permanently deleted. Return to the article list."]); setConnecting(false);
       setHistory((previous) => previous?.run?.id === activeId ? { ...previous,
         run: { ...previous.run, status: "interrupted", errorCode: "ARTICLE_NOT_FOUND", activity: message, permissions: [] } } : previous);
       stream.close();
@@ -73,7 +76,7 @@ export function useArticleAgent(articleId: string, profileId: string) {
         });
         setConnecting(false);
         if (!agentActive(update)) stream.close();
-      } catch { setError("执行事件格式异常，请刷新恢复对话。"); stream.close(); }
+      } catch { setError([undefined, "执行事件格式异常，请刷新恢复对话。", "The agent sent an invalid update. Refresh to restore the conversation."]); stream.close(); }
     });
     const clock = window.setInterval(() => setNow(Date.now()), 1000);
     return () => { disposed = true; stream.close(); window.clearInterval(clock); };
@@ -83,9 +86,12 @@ export function useArticleAgent(articleId: string, profileId: string) {
     if (busy || !visibleHistory || submitting.current === ownership) return false;
     const ownedKey = ownership;
     submitting.current = ownedKey;
-    setSending(true); setError("");
+    setSending(true); setError(null);
     try {
-      if (!(await before())) throw new Error("正文暂未保存成功，请稍后重试。");
+      if (!(await before())) {
+        if (mounted.current && current.current === ownedKey) setError([undefined, "正文暂未保存成功，请稍后重试。", "The article could not be saved. Try again shortly."]);
+        return false;
+      }
       if (!mounted.current || current.current !== ownedKey) return false;
       const started = await api<AgentRun>(`${base}/runs`, { method: "POST", body: { profileId, content, ...(selections === undefined ? {} : { selections }) } });
       if (!mounted.current || current.current !== ownedKey) {
@@ -100,7 +106,7 @@ export function useArticleAgent(articleId: string, profileId: string) {
       setNow(Date.now());
       return true;
     } catch (cause) {
-      if (mounted.current && current.current === ownedKey) setError(cause instanceof Error ? cause.message : "发送失败");
+      if (mounted.current && current.current === ownedKey) setError([cause, "发送失败", "Could not send the message"]);
       return false;
     } finally {
       if (submitting.current === ownedKey) submitting.current = null;
@@ -117,10 +123,10 @@ export function useArticleAgent(articleId: string, profileId: string) {
         ...old, run: value, runs: old.runs?.map((item) => item.id === value.id ? value : item),
         messages: old.messages.map((item) => item.id === value.assistantMessageId ? { ...item, content: value.text } : item),
       } : old);
-    } catch (cause) { if (current.current === ownedKey) setError(cause instanceof Error ? cause.message : "操作失败"); }
+    } catch (cause) { if (current.current === ownedKey) setError([cause, "操作失败", "Could not complete the action"]); }
   }
 
   const seconds = run ? Math.max(0, Math.floor(((agentActive(run) ? Math.max(now, Date.now()) : new Date(run.updatedAt).getTime()) - new Date(run.createdAt).getTime()) / 1000)) : 0;
-  return { history: visibleHistory, run, busy, sending, connecting, seconds, error, setError, send,
+  return { history: visibleHistory, run, busy, sending, connecting, seconds, error: error ? errorText(...error) : "", setError, send,
     cancel: () => control("cancel"), answer: (requestId: string, optionId: string) => control("permission", { requestId, optionId }) };
 }

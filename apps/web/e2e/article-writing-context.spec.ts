@@ -33,7 +33,11 @@ test("outline and body are reviewed on the left and revised through discussion",
   await expect(bodyCandidate).toBeVisible();
   expect((await bodyCandidate.boundingBox())!.height).toBeGreaterThan((await bodyPanel.boundingBox())!.height * 0.6);
   await page.getByRole("button", { name: "讨论修改正文" }).click();
-  await expect(page.getByLabel("向智能体提问")).toHaveValue(/修改正文/);
+  const suggestion = page.getByRole("group", { name: "建议提示词" });
+  await expect(page.getByLabel("向智能体提问")).toHaveValue(/修改大纲/);
+  await expect(suggestion).toContainText("修改正文");
+  await suggestion.getByRole("button", { name: "插入建议" }).click();
+  await expect(page.getByLabel("向智能体提问")).toHaveValue(/修改大纲[^\n]*\n\n[^\n]*修改正文/);
   await page.getByRole("button", { name: "审阅正文草稿" }).click();
   await page.getByRole("dialog", { name: "采用智能体正文" }).getByRole("button", { name: "替换正文" }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("讨论后的正文");
@@ -73,7 +77,8 @@ test("multi-vault selections, reading, per-turn attachments and outline stay wit
     await page.getByRole("button", { name: "文章工作台", exact: true }).click();
     await page.getByRole("button", { name: "新建文章" }).click();
     await expect(page.getByLabel("文章标题")).toBeVisible();
-    const articleId = await page.evaluate(() => localStorage.getItem("ocf-last-article"));
+    await page.waitForURL(/#articles\/[\w-]+$/);
+    const articleId = new URL(page.url()).hash.split("/")[1];
     // The drawer previews and commits references without starting a native run.
     await page.getByRole("button", { name: "选择创作资料", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "选择创作资料" });
@@ -98,10 +103,13 @@ test("multi-vault selections, reading, per-turn attachments and outline stay wit
     await page.getByLabel("引用结束行").fill("3");
     await page.getByRole("button", { name: "引用此选段" }).click();
     await expect(page.getByLabel("本轮引用资料")).toContainText("L3–3");
-    const outline = await (await page.request.get(`/api/v1/articles/${articleId}/outline`)).json();
-    const saved = await page.request.put(`/api/v1/articles/${articleId}/outline`, { headers: { "x-ocf-client": "1" },
+    const outlinePath = `/api/v1/articles/${articleId}/outline`;
+    const outlineResponse = await page.request.get(outlinePath);
+    const outline = await outlineResponse.json();
+    expect(outlineResponse.status(), JSON.stringify(outline)).toBe(200);
+    const saved = await page.request.put(outlinePath, { headers: { "x-ocf-client": "1" },
       data: { markdown: "# 主题大纲\n\n- 甲乙对照\n- 证据与结论", expectedRevision: outline.revision } });
-    expect(saved.ok()).toBe(true);
+    expect(saved.status(), await saved.text()).toBe(200);
     const approved = await page.request.post(`/api/v1/articles/${articleId}/outline/approve`, { headers: { "x-ocf-client": "1" },
       data: { expectedRevision: (await saved.json()).revision } });
     expect(approved.ok()).toBe(true);
@@ -201,13 +209,14 @@ test("agent output links open in article review and proposals appear beside the 
   await page.getByRole("button", { name: "文章工作台", exact: true }).click();
   await page.getByRole("button", { name: "新建文章" }).click();
   await expect(page.getByLabel("文章标题")).toBeVisible();
-  articleId = (await page.evaluate(() => localStorage.getItem("ocf-last-article")))!;
+  await page.waitForURL(/#articles\/[\w-]+$/);
+  articleId = new URL(page.url()).hash.split("/")[1];
   await page.getByLabel("文章标题").fill("输出链接文章");
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
+  await expect(page.locator(".article-save-line")).toContainText(/草稿已保存|已自动保存/);
   const root = `http://127.0.0.1:5173/Users/demo/agent-workspaces/${articleId}/outputs/${turnId}`;
   await page.route("**/api/v1/articles/*/agent?*", (route) => route.fulfill({ json: {
     profileId: "claude-current", run: null, runs: [], messages: [{ id: "assistant-output", role: "assistant",
-      content: `[提纲 outline.md](${root}/outline.md)\n\n[文章 article.md](${root}/article.md)`,
+      content: `[提纲 outline.md](${root}/outline.md)\n\n[文章 article.md](outputs/${turnId}/article.md)`,
       createdAt: new Date().toISOString() }],
   } }));
   await page.reload();
@@ -229,6 +238,8 @@ test("agent output links open in article review and proposals appear beside the 
   await expect(page.getByRole("region", { name: "文章大纲" })).toContainText("输出提纲");
   await page.getByRole("button", { name: "文章 article.md" }).click();
   await expect(page.getByRole("dialog", { name: "采用智能体正文" })).toContainText("输出正文");
+  expect(page.url()).toBe(before);
+  expect(page.context().pages()).toHaveLength(1);
   await page.getByRole("dialog", { name: "采用智能体正文" }).getByRole("button", { name: "替换正文" }).click();
   await expect(page.getByRole("region", { name: "文章正文" })).toContainText("输出正文");
 });
@@ -239,8 +250,9 @@ test("legacy unsaved outline is readable and can be saved after the editor is re
   await page.getByRole("button", { name: "新建文章" }).click();
   await expect(page.getByLabel("文章标题")).toBeVisible();
   await page.getByLabel("文章标题").fill("旧草稿恢复文章");
-  await expect(page.getByRole("status")).toContainText("草稿已保存");
-  const articleId = await page.evaluate(() => localStorage.getItem("ocf-last-article"));
+  await expect(page.locator(".article-save-line")).toContainText(/草稿已保存|已自动保存/);
+  await page.waitForURL(/#articles\/[\w-]+$/);
+  const articleId = new URL(page.url()).hash.split("/")[1];
   await page.evaluate((id) => sessionStorage.setItem(`ocf-outline-draft:${id}`, "# 未保存的旧大纲\n\n- 旧内容"), articleId);
   await page.reload();
   await page.getByRole("button", { name: "文章工作台", exact: true }).click();
